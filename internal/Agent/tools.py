@@ -114,6 +114,7 @@ class ToolRegistry:
         if descriptor is None:
             return f"未知工具: {name}"
         kwargs = json.loads(arguments_json)
+        # 写入参数并执行工具
         return descriptor.handler(**kwargs)
 
 

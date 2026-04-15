@@ -1,9 +1,9 @@
 import os
-import subprocess
-import json
+from datetime import datetime, timezone
 
 from openai import OpenAI
 
+from internal.Agent.tools import default_registry
 
 key = os.environ["ZAI_API_KEY"]
 
@@ -11,58 +11,13 @@ client = OpenAI(
     base_url="https://api.z.ai/api/coding/paas/v4",
     api_key=key
 )
+# 时间采用utc时间
+now_utc = datetime.now(timezone.utc)
+system = f"现在时间是：{now_utc}\n  你是一个coding agent助手，使用bash命令来解决问题，并且无需解释，并且注意当前环境是Windows环境，编写的代码注释和回答必须是用中文回答"
 
-system = "你是一个coding agent助手，使用bash命令来解决问题，并且无需解释，并且注意当前环境是Windows环境"
+# 从注册表自动生成所有已注册工具的 OpenAI schema
+tools = default_registry.get_openai_tools()
 
-tools = [
-    {
-        "type": "function",
-        "function": {
-            "name": "bash",
-            "description": "运行bash命令",
-            "parameters": {
-                "type": "object",
-                "properties": {
-                    "command": {
-                        "type": "string",
-                        "description": "bash命令"
-                    }
-                },
-                "required": ["command"]
-            }
-        }
-    }
-]
-
-# history = [{"role": "system", "content": system},]
-# while True:
-#     query = input("请输入问题：")
-#     history.append({"role": "user", "content": query})
-#     response = client.chat.completions.create(
-#         model="glm-5.1",
-#         messages=history,
-#         max_tokens=8000,
-#         tools=tools,
-#     )
-#     print(response)
-
-def run_bash(command: str) -> str:
-    """
-    运行bash命令
-    :param command:
-    :return:
-    """
-    dangerous_commands = ["rm -rf /", "sudo", "reboot", "shutdown"]
-    if any(cmd in command for cmd in dangerous_commands):
-        return "请勿执行危险命令"
-    try:
-        result = subprocess.run(command, shell=True, cwd=os.getcwd(), capture_output=True, text=True, timeout=120)
-        out = (result.stdout + result.stderr).strip()
-        return out[:5000] if out else "没有输出"
-    except subprocess.TimeoutExpired:
-        return "命令执行超时"
-    except Exception as e:
-        return f"命令执行错误：{str(e)}"
 
 def agent_loop(messages: list[dict]):
     """
@@ -72,37 +27,35 @@ def agent_loop(messages: list[dict]):
     """
     while True:
         response = client.chat.completions.create(
-            model="glm-4.5",
+            model="glm-4.7",
             messages=messages,
             max_tokens=8000,
             tools=tools,
         )
-        # 加入会话
         message = response.choices[0].message
-        print("response:", response)
-        messages.append({"role": "assistant", "content": message.content})
-
-
         finish_reason = response.choices[0].finish_reason
-        # 不使用工具
+        print("response:", response)
+
+        # 构建完整的 assistant message - 此处需要添加model_dump来保存使用过的工具和对话信息而非单纯保存对话信息
+        # assistant_msg = {"role": "assistant", "content": message.content}
+        assistant_msg = message.model_dump(exclude_none=True)
+        messages.append(assistant_msg)
+
+        # 不使用工具，直接返回
         if finish_reason == "stop":
             print("回复：", message.content)
-            messages.append({
-                "role": "assistant",
-                "content": message.content
-            })
             return
-        # 需要调用工具
-        for block in message.tool_calls:
-            if block.type == "function":
-                output = run_bash(json.loads(block.function.arguments)['command'])
-                print("output:", output[:200])
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": block.id,
-                    "content": output
-                })
 
+        # 通过注册表分发工具调用
+        for block in message.tool_calls:
+            print(f"工具调用 [{block.function.name}]：", block.function.arguments)
+            output = default_registry.call(block.function.name, block.function.arguments)
+            print(f"执行结果:", output[:200])
+            messages.append({
+                "role": "tool",
+                "tool_call_id": block.id,
+                "content": output,
+            })
 
 
 if __name__ == '__main__':
@@ -111,7 +64,6 @@ if __name__ == '__main__':
     ]
     while True:
         try:
-            # 请帮我配置一个ANTHROPIC_BASE_URL的环境变量
             query = input("请输入问题：")
         except (EOFError, KeyboardInterrupt):
             break

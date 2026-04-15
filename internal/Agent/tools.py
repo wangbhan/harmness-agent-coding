@@ -64,10 +64,15 @@ class ToolDescriptor:
 
     def to_openai_schema(self) -> dict:
         """从 handler 函数签名自动生成 OpenAI tool definition"""
+        # 获取函数签名
         sig = inspect.signature(self.handler)
         properties = {}
         required = []
-
+        # 递归获取函数参数，以下示例
+        # sig:  (command: str) -> str
+        # pname:  command
+        # param:  command: str
+        # param.annotation:  <class 'str'>
         for pname, param in sig.parameters.items():
             json_type = _python_type_to_json(param.annotation)
             prop = {"type": json_type}

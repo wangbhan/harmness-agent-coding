@@ -6,6 +6,8 @@
 import os
 import re
 import json
+import locale
+import platform
 import inspect
 import subprocess
 from pathlib import Path
@@ -184,6 +186,14 @@ def tool(
 # 安全路径工具
 # ============================================================
 
+def _get_file_encoding() -> str:
+    """根据系统环境返回文件读写编码"""
+    # 针对与Windows系统中出现乱码的情况进行单独处理
+    if platform.system() == "Windows":
+        return "utf-8"
+    return locale.getpreferredencoding(False)
+
+
 def safe_path(p: str) -> Path:
     """
     确认安全path
@@ -289,7 +299,7 @@ def run_read(file_path: str, limit: int = None):
     :return: 文件内容
     """
     try:
-        text = safe_path(file_path).read_text()
+        text = safe_path(file_path).read_text(encoding=_get_file_encoding())
         lines = text.splitlines()
         if limit and limit < len(lines):
             lines = lines[:limit] + [f"...{(len(lines) - limit)} more lines"]
@@ -309,11 +319,10 @@ def run_write(file_path: str, content: str):
     try:
         fp = safe_path(file_path)
         fp.parent.mkdir(parents=True, exist_ok=True)
-        fp.write_text(content)
+        fp.write_text(content, encoding=_get_file_encoding())
         return "写入成功"
     except Exception as e:
         return f"写入文件错误：{str(e)}"
-
 
 @tool
 def run_edit(file_path: str, old_text: str, new_text: str) -> str:
@@ -326,10 +335,10 @@ def run_edit(file_path: str, old_text: str, new_text: str) -> str:
     """
     try:
         fp = safe_path(file_path)
-        content = fp.read_text()
+        content = fp.read_text(encoding=_get_file_encoding())
         if old_text not in content:
             return "未找到旧文本"
-        fp.write_text(content.replace(old_text, new_text, 1))
+        fp.write_text(content.replace(old_text, new_text, 1), encoding=_get_file_encoding())
         return "替换成功"
     except Exception as e:
         return f"替换文件错误：{str(e)}"
@@ -356,7 +365,7 @@ def run_bash(command: str) -> str:
     if any(cmd in command for cmd in dangerous_commands):
         return "请勿执行危险命令"
     try:
-        result = subprocess.run(command, shell=True, cwd=os.getcwd(), capture_output=True, text=True, timeout=120)
+        result = subprocess.run(command, shell=True, cwd=os.getcwd(), capture_output=True, text=True, timeout=120, encoding="utf-8")
         out = (result.stdout + result.stderr).strip()
         return out[:5000] if out else "没有输出"
     except subprocess.TimeoutExpired:

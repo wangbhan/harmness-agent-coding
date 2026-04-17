@@ -115,9 +115,10 @@ class ToolRegistry:
     def register(self, descriptor: ToolDescriptor) -> None:
         self._tools[descriptor.name] = descriptor
 
-    def get_openai_tools(self) -> list[dict]:
-        """返回所有已注册工具的 OpenAI 格式 schema 列表"""
-        return [t.to_openai_schema() for t in self._tools.values()]
+    def get_openai_tools(self, exclude: set[str] | None = None) -> list[dict]:
+        """返回所有已注册工具的 OpenAI 格式 schema 列表, 并且可以选择排除相应的工具"""
+        exclude = exclude or set()
+        return [t.to_openai_schema() for name, t in self._tools.items() if name not in exclude]
 
     def call(self, name: str, arguments_json: str) -> str:
         """根据工具名和 JSON 参数字符串调用对应 handler"""
@@ -207,7 +208,7 @@ def safe_path(p: str) -> Path:
 
 
 # ============================================================
-# 工具 handler 函数
+# 工具 handler 类
 # ============================================================
 
 class TodoManager:
@@ -306,7 +307,6 @@ def run_read(file_path: str, limit: int = None):
         return "\n".join(lines)[:50000]
     except Exception as e:
         return f"读取文件错误：{str(e)}"
-
 
 @tool
 def run_write(file_path: str, content: str):

@@ -3,7 +3,7 @@ from datetime import datetime, timezone
 
 from openai import OpenAI
 
-from internal.Agent.tools import default_registry
+from internal.Agent.tools import default_registry, WORKDIR
 
 key = os.environ["ZAI_API_KEY"]
 
@@ -13,7 +13,9 @@ client = OpenAI(
 )
 # 时间采用utc时间
 now_utc = datetime.now(timezone.utc)
-system = f"现在时间是：{now_utc}\n  你是一个coding agent助手，使用bash命令来解决问题，并且无需解释，并且注意当前环境是Windows环境，编写的代码注释和回答必须是用中文回答"
+system = (f"现在时间是：{now_utc}\n  你是一个在{WORKDIR}下的coding agent助手，优先使用todo tool规划多步骤任务后再执行，"
+          f"开始前标记为“进行中”，完成后标记为“已完成”，优先使用工具而非文字描述，"
+          f"并且注意当前环境是Windows环境，编写的代码注释和回答必须是用中文回答")
 
 # 从注册表自动生成所有已注册工具的 OpenAI schema
 tools = default_registry.get_openai_tools()
@@ -27,7 +29,7 @@ def agent_loop(messages: list[dict]):
     """
     while True:
         response = client.chat.completions.create(
-            model="glm-4.7",
+            model="glm-5.1",
             messages=messages,
             max_tokens=8000,
             tools=tools,
@@ -56,7 +58,6 @@ def agent_loop(messages: list[dict]):
                 "tool_call_id": block.id,
                 "content": output,
             })
-
 
 if __name__ == '__main__':
     history = [

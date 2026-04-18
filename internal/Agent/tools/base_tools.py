@@ -1,8 +1,17 @@
+"""
+工具类函数与注册类
+    此部分提取工具类函数的信息后转化为相应厂商对应的工具类注册后放在api接口中使用
+"""
 import re
 import json
+import locale
+import platform
 import inspect
+from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Callable
+
+from internal.Agent.system import  WORKDIR
 
 
 
@@ -123,3 +132,73 @@ class ToolRegistry:
 
 # 模块级默认注册表
 default_registry = ToolRegistry()
+
+def tool(
+    handler: Callable | None = None,
+    *,
+    name: str | None = None,
+    description: str | None = None,
+    schema: dict | None = None,
+) -> Callable:
+    """装饰器：将函数注册为可用工具
+
+    用法:
+        @tool
+        def run_bash(command: str) -> str:
+            '''运行bash命令
+            :param command: bash命令
+            '''
+            ...
+
+        # 或指定自定义名称和描述
+        @tool(name="shell", description="执行shell命令")
+        def run_bash(command: str) -> str:
+            ...
+
+        # 复杂参数类型可提供自定义 schema
+        @tool(schema=CUSTOM_SCHEMA)
+        def run_complex(items: list):
+            ...
+    """
+    def decorator(fn: Callable) -> Callable:
+        tool_name = name or fn.__name__.removeprefix("run_")
+        tool_desc = description or _parse_docstring_summary(fn)
+        param_descs = _parse_param_descriptions(fn)
+
+        # 对工具进行封装
+        descriptor = ToolDescriptor(
+            handler=fn,
+            name=tool_name,
+            description=tool_desc,
+            param_descriptions=param_descs,
+            schema_override=schema,
+        )
+        # 注册工具
+        default_registry.register(descriptor)
+        return fn
+
+    if handler is not None:
+        return decorator(handler)
+    return decorator
+
+# ============================================================
+# 安全路径工具
+# ============================================================
+
+def _get_file_encoding() -> str:
+    """根据系统环境返回文件读写编码"""
+    # 针对与Windows系统中出现乱码的情况进行单独处理
+    if platform.system() == "Windows":
+        return "utf-8"
+    return locale.getpreferredencoding(False)
+
+def safe_path(p: str) -> Path:
+    """
+    确认安全path
+    :param p: 相对或绝对路径
+    :return: 解析后的安全路径
+    """
+    path = (WORKDIR / p).resolve()
+    if not path.is_relative_to(WORKDIR):
+        raise ValueError("路径超出工作区范围")
+    return path

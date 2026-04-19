@@ -8,4 +8,5 @@ dependencies = [
     "anthropic>=0.95.0",
     "openai>=2.31.0",
     "pydantic>=2.13.0",
+    "pyyaml>=6.0.3",
 ]

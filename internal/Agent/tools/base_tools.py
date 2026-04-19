@@ -11,10 +11,7 @@ from pathlib import Path
 from dataclasses import dataclass, field
 from typing import Callable
 
-from internal.Agent.system import  WORKDIR
-
-
-
+WORKDIR = Path.cwd().parent
 
 # ============================================================
 # 工具注册框架

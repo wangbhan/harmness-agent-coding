@@ -1,3 +1,4 @@
+import platform
 from pathlib import Path
 from datetime import datetime, timezone
 
@@ -8,6 +9,7 @@ from internal.Agent.tools.skill import skill_loader
 now_utc = datetime.now(timezone.utc)
 
 system = (f"现在时间是：{now_utc}\n"
+          f"当前系统是: {platform.system()}"
           f"你是一个在{WORKDIR}下的coding agent助手，使用任务工具来委派探索性任务或子任务。\n\n"
           f"Skills available:\n"
           f"{skill_loader.get_descriptions()}")

@@ -68,10 +68,9 @@ skill_loader = SkillLoader(SKILL_DIR)
 
 class SkillTool(BaseTool):
     name = "skill"
+    description = "获取skill内容"
+    param_descriptions = {"skill_name": "skill名称"}
 
     def execute(self, skill_name: str) -> str:
-        """
-        获取skill内容
-        :param skill_name: skill名称
-        """
+        """获取skill内容"""
         return skill_loader.get_content(skill_name)

@@ -1,5 +1,7 @@
 """
 子代理委派工具
+将子任务委派给独立的子代理执行，子代理拥有完整的工具集，
+完成指定任务后返回结果摘要。支持延迟绑定子 Agent 实例。
 """
 from internal.Agent.tools.base import BaseTool
 
@@ -35,7 +37,7 @@ class DelegateTool(BaseTool):
         self._sub_agent = sub_agent
 
     def execute(self, task: str) -> str:
-        """将任务委派给子代理执行"""
+        """委派任务给子代理"""
         if self._sub_agent is None:
             return "错误：子代理未初始化"
         try:

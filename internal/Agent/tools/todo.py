@@ -1,3 +1,8 @@
+"""
+任务列表管理工具
+提供任务列表的增删改查，支持 pending/in_progress/completed 三种状态，
+用于跟踪多步骤任务的执行进度。
+"""
 from internal.Agent.tools.base import BaseTool
 
 
@@ -86,10 +91,7 @@ class TodoTool(BaseTool):
     schema_override = TODO_SCHEMA
 
     def execute(self, items: list) -> str:
-        """
-        更新任务列表，跟踪多步骤任务的进度
-        :param items: 任务列表
-        """
+        """更新任务列表"""
         try:
             return _todo_manager.update(items)
         except ValueError as e:

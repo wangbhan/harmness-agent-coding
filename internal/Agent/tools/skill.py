@@ -1,22 +1,19 @@
 """
-# 1.找到skill的路径，对其进行遍历
+Skill 加载器 + SkillTool
 
-# 2.对每个skill里面的skill.md进行re正则匹配解析，得到基础摘要和总体内容
-
-# 3.对所有的skill进行描述拼接方便放入提示词中
-
-# 4.当需要调用特定skill时作为工具获取特定skill的内容来传入给大模型
+1. 扫描 skills 目录下的 SKILL.md 文件
+2. 解析 YAML frontmatter 和正文
+3. 提供描述列表（注入 system prompt）和内容获取（工具调用）
 """
-
 import re
 from pathlib import Path
 
 import yaml
 
-from internal.Agent.tools.base_tools import tool, _get_file_encoding
+from internal.Agent.tools.base import BaseTool, _get_file_encoding
 
-# 基于当前文件来获取Skill的绝对路径
 SKILL_DIR = Path(__file__).parent / "skills"
+
 
 class SkillLoader:
     def __init__(self, skills_dir: Path):
@@ -65,8 +62,16 @@ class SkillLoader:
             return f"Error: Unknown skill '{name}'. Available: {', '.join(self.skills.keys())}"
         return f"<skill name=\"{name}\">\n{skill['body']}\n</skill>"
 
+
 skill_loader = SkillLoader(SKILL_DIR)
 
-@tool
-def run_skill(skill_name: str):
-    return skill_loader.get_content(skill_name)
+
+class SkillTool(BaseTool):
+    name = "skill"
+
+    def execute(self, skill_name: str) -> str:
+        """
+        获取skill内容
+        :param skill_name: skill名称
+        """
+        return skill_loader.get_content(skill_name)

@@ -2,7 +2,7 @@ import platform
 from pathlib import Path
 from datetime import datetime, timezone
 
-from internal.Agent.tools.base_tools import WORKDIR
+from internal.Agent.tools.base import WORKDIR
 from internal.Agent.tools.skill import skill_loader
 
 # 时间采用utc时间

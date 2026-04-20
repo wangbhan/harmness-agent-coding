@@ -1,4 +1,4 @@
-from internal.Agent.tools.base_tools import tool
+from internal.Agent.tools.base import BaseTool
 
 
 class TodoManager:
@@ -48,7 +48,7 @@ class TodoManager:
 # 模块级管理器实例
 _todo_manager = TodoManager()
 
-# agent_todo工具的自定义 OpenAI schema（嵌套 array 类型，无法自动生成）
+# 自定义 OpenAI schema（嵌套 array 类型，无法自动生成）
 TODO_SCHEMA = {
     "type": "function",
     "function": {
@@ -80,13 +80,17 @@ TODO_SCHEMA = {
     },
 }
 
-@tool(schema=TODO_SCHEMA)
-def run_todo(items: list):
-    """
-    更新任务列表，跟踪多步骤任务的进度
-    :param items: 任务列表
-    """
-    try:
-        return _todo_manager.update(items)
-    except ValueError as e:
-        return f"参数错误：{e}"
+
+class TodoTool(BaseTool):
+    name = "todo"
+    schema_override = TODO_SCHEMA
+
+    def execute(self, items: list) -> str:
+        """
+        更新任务列表，跟踪多步骤任务的进度
+        :param items: 任务列表
+        """
+        try:
+            return _todo_manager.update(items)
+        except ValueError as e:
+            return f"参数错误：{e}"

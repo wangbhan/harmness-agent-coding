@@ -8,6 +8,7 @@ todo工具中只是在内存中规划要做的事情，虽然有顺序和状态�
  3.什么做完了：状态为completed的任务，完成后自动解锁后续任务
 """
 import json
+import threading
 from pathlib import Path
 
 from internal.Agent.tools.base import BaseTool, WORKDIR
@@ -21,6 +22,7 @@ class TaskManager:
         self.dir.mkdir(exist_ok=True)
         self._next_id = self._max_id() + 1
         self.items = []
+        self._lock = threading.Lock()
 
     def _max_id(self) -> int:
         """找出最大任务数"""
@@ -49,12 +51,13 @@ class TaskManager:
 
     def create(self, subject: str, description: str = "") -> str:
         """创建任务"""
-        task = {
-            "id": self._next_id, "subject": subject, "description": description,
-            "status": "pending", "blockedBy": [], "owner": "",
-        }
-        self._save(task)
-        self._next_id += 1
+        with self._lock:
+            task = {
+                "id": self._next_id, "subject": subject, "description": description,
+                "status": "pending", "blockedBy": [], "owner": "",
+            }
+            self._save(task)
+            self._next_id += 1
         return json.dumps(task, indent=2, ensure_ascii=False)
 
     def get(self, task_id: int) -> str:

@@ -11,3 +11,7 @@ wheels/
 
 # Session logs
 internal/.logs/
+
+internal/.tasks/
+
+internal/.transcripts

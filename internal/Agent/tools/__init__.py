@@ -9,7 +9,7 @@ from internal.Agent.tools.bash import BashTool
 from internal.Agent.tools.read import ReadTool
 from internal.Agent.tools.write import WriteTool
 from internal.Agent.tools.edit import EditTool
-from internal.Agent.tools.todo import TodoTool
+from internal.Agent.tools.task import TaskCreateTool, TaskGetTool, TaskListTool, TaskUpdateTool
 from internal.Agent.tools.skill import SkillTool
 from internal.Agent.tools.sub_agent import delegate_tool
 from internal.Agent.tools.compact import compact_tool
@@ -22,8 +22,16 @@ default_registry.register(BashTool())
 default_registry.register(ReadTool())
 default_registry.register(WriteTool())
 default_registry.register(EditTool())
-default_registry.register(TodoTool())
 default_registry.register(SkillTool())
+
+# ============================================================
+# 注册任务工具（替换原 todo 工具）
+# ============================================================
+
+default_registry.register(TaskCreateTool())
+default_registry.register(TaskGetTool())
+default_registry.register(TaskListTool())
+default_registry.register(TaskUpdateTool())
 
 # ============================================================
 # 注册 compact 工具

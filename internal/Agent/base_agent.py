@@ -10,12 +10,13 @@ from internal.Agent.tools.compact import micro_compact, auto_compact
 class Agent:
     """LLM Agent，封装客户端、工具集和对话循环"""
 
-    def __init__(self, client, registry, tools, model="glm-5.1", max_tokens=8000):
+    def __init__(self, client, registry, tools, model="glm-5.1", max_tokens=8000, session_log=None):
         self.client = client
         self.registry = registry
         self.tools = tools
         self.model = model
         self.max_tokens = max_tokens
+        self.log = session_log
 
     @staticmethod
     def _extract_system_message(messages: list[dict]) -> dict | None:
@@ -39,12 +40,21 @@ class Agent:
             message = response.choices[0].message
             finish_reason = response.choices[0].finish_reason
             print("response:", response)
+            if self.log:
+                self.log.llm_response(
+                    finish_reason=finish_reason,
+                    model=self.model,
+                    message_count=len(messages),
+                    has_tool_calls=bool(message.tool_calls),
+                )
 
             assistant_msg = message.model_dump(exclude_none=True)
             messages.append(assistant_msg)
 
             if finish_reason == "stop":
                 print("回复：", message.content)
+                if self.log:
+                    self.log.agent_reply(message.content or "")
                 return
 
             # 并行执行所有工具调用 - 一次请求中存在多个工具调用的情况
@@ -67,6 +77,17 @@ class Agent:
                 output = results[block.id]
                 print(f"工具调用 [{block.function.name}]：", block.function.arguments)
                 print(f"执行结果:", output[:200])
+                if self.log:
+                    self.log.tool_call(
+                        tool_name=block.function.name,
+                        arguments=block.function.arguments,
+                        call_id=block.id,
+                    )
+                    self.log.tool_result(
+                        tool_name=block.function.name,
+                        call_id=block.id,
+                        result=output,
+                    )
                 messages.append({
                     "role": "tool",
                     "tool_call_id": block.id,

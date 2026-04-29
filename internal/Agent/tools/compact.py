@@ -1,9 +1,86 @@
 """
 压缩策略：
-    1.将旧的tool_result替换为占位符，收集所有tool_result的结果，通过tool_name与tool_id进行map配对实现tool_result的匹配
-    tool_result保留近3轮tool调用历史，同时对于tool_result结果<100字符的不做占位处理，对于特定tool_result不能做占位
+    1. micro_compact: 将执行过的tool_result替换为占位符，保留近3轮调用历史，
+       短结果和特定工具结果不做占位处理
 
-    2.当上下文超过阈值时，先将对话保存到磁盘，然后给LLM做摘要，
-    其中转给大模型做摘要时将message全部转化为str并且只保留后key（自定义）个字符给大模型:
-    json.dumps(messages, default=str)[:80000]})
+    2. auto_compact: 将对话保存到磁盘后调用LLM生成摘要，返回压缩后的上下文
+
+    3. CompactTool: 注册为工具供LLM调用，当上下文过长时LLM自行决定压缩时机
 """
+import json
+
+from internal.Agent.tools.base import BaseTool, WORKDIR, _get_file_encoding
+
+TRANSCRIPT_DIR = WORKDIR / ".transcripts"
+
+KEEP_RECENT = 3
+
+PRESERVE_RESULT_TOOLS = {"read", "todo"}
+
+THRESHOLD = 50000
+
+
+def micro_compact(messages: list):
+    """将旧的tool_result变为占位符，并且保留某些读取的结果防止工具再次调用"""
+    tool_results = []
+    for i, msg in enumerate(messages):
+        if msg.get("role") == "tool":
+            tool_results.append((i, msg))
+
+    if len(tool_results) <= KEEP_RECENT:
+        return messages
+
+    tool_map = {}
+    for msg in messages:
+        if msg.get("role") == "assistant":
+            for tool_call in msg.get("tool_calls", []):
+                tool_map[tool_call["id"]] = tool_call["function"]["name"]
+
+    to_clear = tool_results[:-KEEP_RECENT]
+
+    for i, msg in to_clear:
+        content = msg.get("content")
+        if not isinstance(content, str) or len(content) <= 100:
+            continue
+        tool_id = msg.get("tool_call_id", "")
+        tool_name = tool_map.get(tool_id, "unknown")
+        if tool_name in PRESERVE_RESULT_TOOLS:
+            continue
+        msg["content"] = f"[Previous: used {tool_name}]"
+
+    return messages
+
+
+def auto_compact(messages: list, client, model: str = "glm-5.1", topic: str = "") -> str:
+    """将对话保存到磁盘，调用LLM生成摘要"""
+    TRANSCRIPT_DIR.mkdir(exist_ok=True)
+    transcript_path = TRANSCRIPT_DIR / f"transcript_{topic}.json"
+    with open(transcript_path, "a", encoding=_get_file_encoding()) as f:
+        for msg in messages:
+            f.write(json.dumps(msg, default=str) + "\n")
+    print(f"[对话已经保存至： {transcript_path}]")
+    conversation_text = json.dumps(messages, default=str)[-80000:]
+    response = client.chat.completions.create(
+        model=model,
+        messages=[{"role": "user", "content":
+            "请对本次对话进行总结，以确保后续工作的连贯性。总结内容应包含："
+            "1) 已取得的成果；2) 当前的进展状态；3) 已做出的关键决策。 "
+            "请力求简洁，但务必保留关键细节。\n\n" + conversation_text}],
+        max_tokens=2000,
+    )
+    summary = response.choices[0].message.content or "未生成摘要。"
+    return f"[对话已压缩。对话保存位置： {transcript_path}]\n\n{summary}"
+
+
+class CompactTool(BaseTool):
+    """LLM 调用的压缩信号工具，实际压缩由 Agent 循环处理"""
+
+    name = "compact"
+    description = "压缩对话历史。当上下文过长或对话轮次过多时调用此工具，将历史对话压缩为摘要以释放上下文空间。请单独调用，不要与其他工具同时调用。"
+
+    def execute(self) -> str:
+        """请求压缩对话历史"""
+        return "压缩请求已接收，正在压缩对话历史..."
+
+
+compact_tool = CompactTool()

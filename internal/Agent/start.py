@@ -1,7 +1,10 @@
 from internal.Agent.base_agent import Agent
 from internal.Agent.llm_config import client
-from internal.Agent.tools import default_registry
+from internal.Agent.tools import default_registry, setup_delegate
 from internal.Agent.system import system
+
+# 延迟初始化子代理（避免循环导入）
+setup_delegate()
 
 # 构建父 agent（基础工具 + delegate）
 parent_agent = Agent(

@@ -12,6 +12,7 @@ from internal.Agent.tools.edit import EditTool
 from internal.Agent.tools.todo import TodoTool
 from internal.Agent.tools.skill import SkillTool
 from internal.Agent.tools.sub_agent import delegate_tool
+from internal.Agent.tools.compact import compact_tool
 
 # ============================================================
 # 注册基础工具
@@ -25,17 +26,25 @@ default_registry.register(TodoTool())
 default_registry.register(SkillTool())
 
 # ============================================================
+# 注册 compact 工具
+# ============================================================
+
+default_registry.register(compact_tool)
+
+# ============================================================
 # 注册 delegate 工具 + 绑定子 Agent
 # ============================================================
 
 default_registry.register(delegate_tool)
 
-from internal.Agent.base_agent import Agent
-from internal.Agent.llm_config import client
+def setup_delegate():
+    """延迟初始化子代理，避免模块加载时的循环导入"""
+    from internal.Agent.base_agent import Agent
+    from internal.Agent.llm_config import client
 
-sub_agent = Agent(
-    client=client,
-    registry=default_registry,
-    tools=default_registry.get_openai_tools(exclude={"delegate"}),
-)
-delegate_tool.bind(sub_agent)
+    sub_agent = Agent(
+        client=client,
+        registry=default_registry,
+        tools=default_registry.get_openai_tools(exclude={"delegate"}),
+    )
+    delegate_tool.bind(sub_agent)

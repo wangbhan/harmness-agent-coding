@@ -1,5 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from internal.Agent.tools.compact import micro_compact, auto_compact
+
 
 # ============================================================
 # Agent 类
@@ -15,9 +17,19 @@ class Agent:
         self.model = model
         self.max_tokens = max_tokens
 
+    @staticmethod
+    def _extract_system_message(messages: list[dict]) -> dict | None:
+        for msg in messages:
+            if msg.get("role") == "system":
+                return msg
+        return None
+
     def run(self, messages: list[dict]) -> None:
         """执行 agent 循环，直接修改 messages 列表。同一轮中的多个工具调用并行执行。"""
         while True:
+            # 被动压缩旧 tool_result
+            messages = micro_compact(messages)
+
             response = self.client.chat.completions.create(
                 model=self.model,
                 messages=messages,
@@ -50,6 +62,7 @@ class Agent:
                     results[call_id] = future.result()
 
             # 按原始顺序追加结果
+            compact_called = False
             for block in tool_calls:
                 output = results[block.id]
                 print(f"工具调用 [{block.function.name}]：", block.function.arguments)
@@ -59,3 +72,15 @@ class Agent:
                     "tool_call_id": block.id,
                     "content": output,
                 })
+                if block.function.name == "compact":
+                    compact_called = True
+
+            # compact 工具调用后，压缩全部消息（此时所有并行工具结果已追加）
+            if compact_called:
+                system_msg = self._extract_system_message(messages)
+                compact_content = auto_compact(messages, client=self.client, model=self.model)
+                new = []
+                if system_msg:
+                    new.append(system_msg)
+                new.append({"role": "user", "content": compact_content})
+                messages[:] = new

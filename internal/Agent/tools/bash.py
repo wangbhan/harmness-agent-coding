@@ -5,6 +5,7 @@ Bash 命令执行工具
 import os
 import subprocess
 
+from internal.Agent.config import get_config
 from internal.Agent.tools.base import BaseTool
 
 
@@ -15,13 +16,17 @@ class BashTool(BaseTool):
 
     def execute(self, command: str) -> str:
         """运行bash命令"""
-        dangerous_commands = ["rm -rf /", "sudo", "reboot", "shutdown"]
-        if any(cmd in command for cmd in dangerous_commands):
+        cfg = get_config().tools.bash
+        if any(cmd in command for cmd in cfg.dangerous_commands):
             return "请勿执行危险命令"
         try:
-            result = subprocess.run(command, shell=True, cwd=os.getcwd(), capture_output=True, text=True, timeout=120, encoding="utf-8")
+            result = subprocess.run(
+                command, shell=True, cwd=os.getcwd(),
+                capture_output=True, text=True,
+                timeout=cfg.timeout, encoding=cfg.encoding,
+            )
             out = (result.stdout + result.stderr).strip()
-            return out[:5000] if out else "没有输出"
+            return out[:cfg.max_output_len] if out else "没有输出"
         except subprocess.TimeoutExpired:
             return "命令执行超时"
         except Exception as e:

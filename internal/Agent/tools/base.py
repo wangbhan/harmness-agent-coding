@@ -8,7 +8,16 @@ import inspect
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-WORKDIR = Path.cwd().parent
+WORKDIR: Path = None  # 由 init_workdir() 设置
+
+
+def init_workdir(paths_config):
+    """从已加载的配置设置 WORKDIR"""
+    global WORKDIR
+    if paths_config.workdir:
+        WORKDIR = Path(paths_config.workdir).resolve()
+    else:
+        WORKDIR = Path.cwd().parent
 
 
 # ============================================================

@@ -1,8 +1,13 @@
+# 1. 先初始化配置（必须在所有模块导入之前）
+from internal.Agent.config import init_config, get_config
+init_config()
+
+# 2. 再导入依赖配置的模块
 from internal.Agent.base_agent import Agent
 from internal.Agent.llm_config import client
 from internal.Agent.tools import default_registry, setup_delegate
 from internal.Agent.system import system
-from internal.Agent.conversation_log import SessionLogger, get_log_level_from_env
+from internal.Agent.conversation_log import SessionLogger
 
 # 延迟初始化子代理（避免循环导入）
 setup_delegate()
@@ -13,7 +18,8 @@ setup_delegate()
 # ============================================================
 
 if __name__ == '__main__':
-    session_log = SessionLogger(level=get_log_level_from_env())
+    cfg = get_config()
+    session_log = SessionLogger(level=cfg.log.level)
 
     parent_agent = Agent(
         client=client,

@@ -3,20 +3,12 @@
 每次 REPL 会话生成独立的 JSONL 文件，记录完整交互链路。
 """
 import json
-import os
 from datetime import datetime, timezone
 
 from loguru import logger
 
+from internal.Agent.config import get_config
 from internal.Agent.tools.base import WORKDIR
-
-LOG_DIR = WORKDIR / ".logs" / "sessions"
-
-MAX_ARGS_INFO = 500
-MAX_ARGS_DEBUG = 10_000
-MAX_RESULT_INFO = 500
-MAX_RESULT_DEBUG = 10_000
-MAX_REPLY_LEN = 2000
 
 
 def _json_formatter(record):
@@ -35,8 +27,15 @@ def _json_formatter(record):
 class SessionLogger:
     """每次 REPL 会话对应一个实例，拥有独立的日志文件。"""
 
-    def __init__(self, level: str = "DEBUG"):
-        LOG_DIR.mkdir(parents=True, exist_ok=True)
+    def __init__(self, level: str = None):
+        cfg = get_config()
+        log_cfg = cfg.log
+        paths_cfg = cfg.paths
+        self.level = level or log_cfg.level
+        self._log_cfg = log_cfg
+
+        log_dir = WORKDIR / paths_cfg.logs_dir
+        log_dir.mkdir(parents=True, exist_ok=True)
 
         now = datetime.now(timezone.utc)
         self.session_id = (
@@ -46,8 +45,8 @@ class SessionLogger:
 
         logger.remove()
         logger.add(
-            LOG_DIR / f"{self.session_id}.jsonl",
-            level=level.upper(),
+            log_dir / f"{self.session_id}.jsonl",
+            level=self.level.upper(),
             format=_json_formatter,
             encoding="utf-8",
         )
@@ -84,32 +83,32 @@ class SessionLogger:
 
     def agent_reply(self, content: str):
         self._emit("INFO", "agent_reply", {
-            "content": content[:MAX_REPLY_LEN],
+            "content": content[:self._log_cfg.max_reply_len],
         })
 
     def tool_call(self, tool_name: str, arguments: str, call_id: str):
         self._emit("INFO", "tool_call", {
             "tool_name": tool_name,
             "call_id": call_id,
-            "arguments_summary": arguments[:MAX_ARGS_INFO],
+            "arguments_summary": arguments[:self._log_cfg.max_args_info],
         })
         self._emit("DEBUG", "tool_call_full", {
             "tool_name": tool_name,
             "call_id": call_id,
-            "arguments": arguments[:MAX_ARGS_DEBUG],
+            "arguments": arguments[:self._log_cfg.max_args_debug],
         })
 
     def tool_result(self, tool_name: str, call_id: str, result: str):
         self._emit("INFO", "tool_result", {
             "tool_name": tool_name,
             "call_id": call_id,
-            "result_summary": result[:MAX_RESULT_INFO],
+            "result_summary": result[:self._log_cfg.max_result_info],
             "result_length": len(result),
         })
         self._emit("DEBUG", "tool_result_full", {
             "tool_name": tool_name,
             "call_id": call_id,
-            "result": result[:MAX_RESULT_DEBUG],
+            "result": result[:self._log_cfg.max_result_debug],
         })
 
     def error(self, message: str, details: dict | None = None):
@@ -123,8 +122,3 @@ class SessionLogger:
         if details:
             data.update(details)
         self._emit("WARNING", "warning", data)
-
-
-def get_log_level_from_env() -> str:
-    """读取环境变量 AGENT_LOG_LEVEL，默认 DEBUG。"""
-    return os.environ.get("AGENT_LOG_LEVEL", "DEBUG")

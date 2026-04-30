@@ -3,6 +3,7 @@
 将子任务委派给独立的子代理执行，子代理拥有完整的工具集，
 完成指定任务后返回结果摘要。支持延迟绑定子 Agent 实例。
 """
+from internal.Agent.config import get_config
 from internal.Agent.tools.base import BaseTool
 
 DELEGATE_SCHEMA = {
@@ -51,7 +52,7 @@ class DelegateTool(BaseTool):
             content = last.get("content", "")
             if not content:
                 return "子代理未返回文本内容"
-            return content[:8000]
+            return content[:get_config().tools.sub_agent.max_result_len]
         except Exception as e:
             return f"子代理执行失败：{e}"
 

@@ -9,25 +9,32 @@
 """
 import json
 
+from internal.Agent.config import get_config
 from internal.Agent.tools.base import BaseTool, WORKDIR, _get_file_encoding
 
-TRANSCRIPT_DIR = WORKDIR / ".transcripts"
+TRANSCRIPT_DIR = None  # 由模块导入时从配置初始化
 
-KEEP_RECENT = 3
 
-PRESERVE_RESULT_TOOLS = {"read", "todo"}
+def _ensure_transcript_dir():
+    global TRANSCRIPT_DIR
+    if TRANSCRIPT_DIR is None:
+        cfg = get_config().paths
+        TRANSCRIPT_DIR = WORKDIR / cfg.transcripts_dir
 
-THRESHOLD = 50000
+
+def _cfg():
+    return get_config().compact
 
 
 def micro_compact(messages: list):
     """将旧的tool_result变为占位符，并且保留某些读取的结果防止工具再次调用"""
+    cfg = _cfg()
     tool_results = []
     for i, msg in enumerate(messages):
         if msg.get("role") == "tool":
             tool_results.append((i, msg))
 
-    if len(tool_results) <= KEEP_RECENT:
+    if len(tool_results) <= cfg.keep_recent:
         return messages
 
     tool_map = {}
@@ -36,7 +43,8 @@ def micro_compact(messages: list):
             for tool_call in msg.get("tool_calls", []):
                 tool_map[tool_call["id"]] = tool_call["function"]["name"]
 
-    to_clear = tool_results[:-KEEP_RECENT]
+    to_clear = tool_results[:-cfg.keep_recent]
+    preserve = set(cfg.preserve_result_tools)
 
     for i, msg in to_clear:
         content = msg.get("content")
@@ -44,29 +52,32 @@ def micro_compact(messages: list):
             continue
         tool_id = msg.get("tool_call_id", "")
         tool_name = tool_map.get(tool_id, "unknown")
-        if tool_name in PRESERVE_RESULT_TOOLS:
+        if tool_name in preserve:
             continue
         msg["content"] = f"[Previous: used {tool_name}]"
 
     return messages
 
 
-def auto_compact(messages: list, client, model: str = "glm-5.1", topic: str = "") -> str:
+def auto_compact(messages: list, client, model: str = None, topic: str = "") -> str:
     """将对话保存到磁盘，调用LLM生成摘要"""
+    cfg = _cfg()
+    _ensure_transcript_dir()
+    model = model or cfg.model
     TRANSCRIPT_DIR.mkdir(exist_ok=True)
     transcript_path = TRANSCRIPT_DIR / f"transcript_{topic}.json"
     with open(transcript_path, "a", encoding=_get_file_encoding()) as f:
         for msg in messages:
             f.write(json.dumps(msg, default=str) + "\n")
     print(f"[对话已经保存至： {transcript_path}]")
-    conversation_text = json.dumps(messages, default=str)[-80000:]
+    conversation_text = json.dumps(messages, default=str)[-cfg.conversation_slice:]
     response = client.chat.completions.create(
         model=model,
         messages=[{"role": "user", "content":
             "请对本次对话进行总结，以确保后续工作的连贯性。总结内容应包含："
             "1) 已取得的成果；2) 当前的进展状态；3) 已做出的关键决策。 "
             "请力求简洁，但务必保留关键细节。\n\n" + conversation_text}],
-        max_tokens=2000,
+        max_tokens=cfg.max_tokens,
     )
     summary = response.choices[0].message.content or "未生成摘要。"
     return f"[对话已压缩。对话保存位置： {transcript_path}]\n\n{summary}"

@@ -3,6 +3,7 @@
 提供任务列表的增删改查，支持 pending/in_progress/completed 三种状态，
 用于跟踪多步骤任务的执行进度。
 """
+from internal.Agent.config import get_config
 from internal.Agent.tools.base import BaseTool
 
 
@@ -13,7 +14,7 @@ class TodoManager:
 
     def update(self, items: list) -> str:
         """更新任务列表，校验参数并渲染结果"""
-        if len(items) > 20:
+        if len(items) > get_config().tools.todo.max_tasks:
             raise ValueError("至多20个任务")
         validated = []
         in_progress_count = 0

@@ -11,9 +11,10 @@ import json
 import threading
 from pathlib import Path
 
+from internal.Agent.config import get_config
 from internal.Agent.tools.base import BaseTool, WORKDIR
 
-TASKS_DIR = WORKDIR / ".tasks"
+TASKS_DIR = WORKDIR / get_config().paths.tasks_dir
 
 class TaskManager:
     """任务管理器，维护任务列表的增删改查"""

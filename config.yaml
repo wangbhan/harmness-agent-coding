@@ -1,0 +1,53 @@
+# ============================================================
+# AI Agent 配置文件（示例模板）
+# 提交到 Git，本地覆盖请创建 config.yaml.local
+# ============================================================
+
+llm:
+  api_key_env: "ZAI_API_KEY"
+  api_key: ""
+  base_url: "https://api.z.ai/api/coding/paas/v4"
+  default_model: "glm-5.1"
+  default_max_tokens: 8000
+
+paths:
+  workdir: ""
+  transcripts_dir: ".transcripts"
+  logs_dir: ".logs/sessions"
+  tasks_dir: ".tasks"
+  skills_dir: ""
+
+compact:
+  keep_recent: 3
+  preserve_result_tools:
+    - "read"
+    - "todo"
+  threshold: 50000
+  model: "glm-5.1"
+  conversation_slice: 80000
+  max_tokens: 2000
+
+log:
+  level: "DEBUG"
+  max_args_info: 500
+  max_args_debug: 10000
+  max_result_info: 500
+  max_result_debug: 10000
+  max_reply_len: 2000
+
+tools:
+  bash:
+    dangerous_commands:
+      - "rm -rf /"
+      - "sudo"
+      - "reboot"
+      - "shutdown"
+    timeout: 120
+    encoding: "utf-8"
+    max_output_len: 5000
+  read:
+    max_content_len: 50000
+  sub_agent:
+    max_result_len: 8000
+  todo:
+    max_tasks: 20

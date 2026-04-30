@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
+from internal.Agent.config import get_config
 from internal.Agent.tools.compact import micro_compact, auto_compact
 
 
@@ -10,12 +11,13 @@ from internal.Agent.tools.compact import micro_compact, auto_compact
 class Agent:
     """LLM Agent，封装客户端、工具集和对话循环"""
 
-    def __init__(self, client, registry, tools, model="glm-5.1", max_tokens=8000, session_log=None):
+    def __init__(self, client, registry, tools, model=None, max_tokens=None, session_log=None):
+        cfg = get_config().llm
         self.client = client
         self.registry = registry
         self.tools = tools
-        self.model = model
-        self.max_tokens = max_tokens
+        self.model = model or cfg.default_model
+        self.max_tokens = max_tokens if max_tokens is not None else cfg.default_max_tokens
         self.log = session_log
 
     @staticmethod

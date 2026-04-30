@@ -10,9 +10,11 @@ from pathlib import Path
 
 import yaml
 
+from internal.Agent.config import get_config
 from internal.Agent.tools.base import BaseTool, _get_file_encoding
 
-SKILL_DIR = Path(__file__).parent / "skills"
+_cfg_skills_dir = get_config().paths.skills_dir
+SKILL_DIR = Path(_cfg_skills_dir) if _cfg_skills_dir else Path(__file__).parent / "skills"
 
 
 class SkillLoader:

@@ -3,51 +3,85 @@
 # 提交到 Git，本地覆盖请创建 config.yaml.local
 # ============================================================
 
+# --- LLM 客户端配置 ---
 llm:
+  # 读取 API Key 的环境变量名
   api_key_env: "ZAI_API_KEY"
+  # API Key 直填（优先级低于环境变量，建议在 config.yaml.local 中填写）
   api_key: ""
+  # OpenAI 兼容的 API 端点地址
   base_url: "https://api.z.ai/api/coding/paas/v4"
+  # 默认使用的模型名称
   default_model: "glm-5.1"
+  # 模型响应的最大 token 数
   default_max_tokens: 8000
 
+# --- 路径配置（相对路径基于 workdir 解析） ---
 paths:
+  # 工作根目录，为空时自动使用 Path.cwd().parent
   workdir: ""
+  # 对话转录文件保存目录（压缩时原始对话的落盘位置）
   transcripts_dir: ".transcripts"
+  # 会话 JSONL 日志保存目录
   logs_dir: ".logs/sessions"
+  # 任务持久化 JSON 文件保存目录
   tasks_dir: ".tasks"
+  # 技能目录，为空时自动使用 tools/skills
   skills_dir: ""
 
+# --- 对话压缩配置 ---
 compact:
+  # micro_compact 保留最近的 tool_result 轮数（更早的会被替换为占位符）
   keep_recent: 3
+  # 这些工具的执行结果不压缩，保留完整内容
   preserve_result_tools:
     - "read"
     - "todo"
+  # 触发 auto_compact 的对话字符数阈值
   threshold: 50000
+  # auto_compact 生成摘要使用的模型
   model: "glm-5.1"
+  # 传给 LLM 摘要时截取的对话尾部字符数
   conversation_slice: 80000
+  # 摘要生成时的 max_tokens
   max_tokens: 2000
 
+# --- 日志系统配置 ---
 log:
+  # 日志级别：DEBUG / INFO / WARNING / ERROR
   level: "DEBUG"
+  # INFO 级别日志中工具调用参数的截断长度
   max_args_info: 500
+  # DEBUG 级别日志中工具调用参数的截断长度
   max_args_debug: 10000
+  # INFO 级别日志中工具执行结果的截断长度
   max_result_info: 500
+  # DEBUG 级别日志中工具执行结果的截断长度
   max_result_debug: 10000
+  # Agent 回复内容在日志中的截断长度
   max_reply_len: 2000
 
+# --- 工具配置 ---
 tools:
   bash:
+    # 危险命令黑名单，包含这些关键字的命令将被拦截
     dangerous_commands:
       - "rm -rf /"
       - "sudo"
       - "reboot"
       - "shutdown"
+    # 命令执行超时时间（秒）
     timeout: 120
+    # 命令输出编码
     encoding: "utf-8"
+    # 命令输出内容的最大长度（超出截断）
     max_output_len: 5000
   read:
+    # 读取文件内容的最大长度（超出截断）
     max_content_len: 50000
   sub_agent:
+    # 子 Agent 返回结果的最大长度（超出截断）
     max_result_len: 8000
   todo:
+    # 任务列表最大任务数量
     max_tasks: 20

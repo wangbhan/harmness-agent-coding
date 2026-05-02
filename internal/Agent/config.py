@@ -9,6 +9,8 @@ from typing import Optional
 import yaml
 from pydantic import BaseModel, Field
 
+from internal.Agent.tools.base import init_workdir
+
 
 # ============================================================
 # Pydantic 配置模型
@@ -155,7 +157,6 @@ def init_config(config_dir: Path | None = None):
 
     _config_instance = AgentConfig(**merged)
 
-    from internal.Agent.tools.base import init_workdir
     init_workdir(_config_instance.paths)
 
 

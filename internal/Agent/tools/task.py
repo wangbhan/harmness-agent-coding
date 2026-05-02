@@ -12,9 +12,19 @@ import threading
 from pathlib import Path
 
 from internal.Agent.config import get_config
-from internal.Agent.tools.base import BaseTool, WORKDIR
+import internal.Agent.tools.base as _base
+from internal.Agent.tools.base import BaseTool
 
-TASKS_DIR = WORKDIR / get_config().paths.tasks_dir
+_TASKS: "TaskManager | None" = None
+
+
+def _get_tasks() -> "TaskManager":
+    """延迟初始化 TaskManager，确保配置和 WORKDIR 已就绪"""
+    global _TASKS
+    if _TASKS is None:
+        tasks_dir = _base.WORKDIR / get_config().paths.tasks_dir
+        _TASKS = TaskManager(tasks_dir)
+    return _TASKS
 
 class TaskManager:
     """任务管理器，维护任务列表的增删改查"""
@@ -112,7 +122,6 @@ class TaskManager:
 
         return "\n".join(lines)
 
-TASKS = TaskManager(TASKS_DIR)
 
 # ============================================================
 # Schema（list 类型参数无法自动生成，需手动定义）
@@ -165,7 +174,7 @@ class TaskCreateTool(BaseTool):
     def execute(self, subject: str, description: str = "") -> str:
         """创建任务"""
         try:
-            return TASKS.create(subject, description)
+            return _get_tasks().create(subject, description)
         except Exception as e:
             return f"错误：{e}"
 
@@ -178,7 +187,7 @@ class TaskGetTool(BaseTool):
     def execute(self, task_id: int) -> str:
         """获取任务"""
         try:
-            return TASKS.get(task_id)
+            return _get_tasks().get(task_id)
         except Exception as e:
             return f"错误：{e}"
 
@@ -190,7 +199,7 @@ class TaskListTool(BaseTool):
     def execute(self) -> str:
         """列出所有任务"""
         try:
-            return TASKS.list_all()
+            return _get_tasks().list_all()
         except Exception as e:
             return f"错误：{e}"
 
@@ -203,6 +212,6 @@ class TaskUpdateTool(BaseTool):
                 add_blocked_by: list = None, remove_blocked_by: list = None) -> str:
         """更新任务"""
         try:
-            return TASKS.update(task_id, status or None, add_blocked_by, remove_blocked_by)
+            return _get_tasks().update(task_id, status or None, add_blocked_by, remove_blocked_by)
         except Exception as e:
             return f"错误：{e}"

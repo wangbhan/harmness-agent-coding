@@ -13,8 +13,17 @@ import yaml
 from internal.Agent.config import get_config
 from internal.Agent.tools.base import BaseTool, _get_file_encoding
 
-_cfg_skills_dir = get_config().paths.skills_dir
-SKILL_DIR = Path(_cfg_skills_dir) if _cfg_skills_dir else Path(__file__).parent / "skills"
+_skill_loader: "SkillLoader | None" = None
+
+
+def _get_skill_loader() -> "SkillLoader":
+    """延迟初始化 SkillLoader，确保配置已就绪"""
+    global _skill_loader
+    if _skill_loader is None:
+        _cfg_skills_dir = get_config().paths.skills_dir
+        skills_dir = Path(_cfg_skills_dir) if _cfg_skills_dir else Path(__file__).parent / "skills"
+        _skill_loader = SkillLoader(skills_dir)
+    return _skill_loader
 
 
 class SkillLoader:
@@ -65,7 +74,7 @@ class SkillLoader:
         return f"<skill name=\"{name}\">\n{skill['body']}\n</skill>"
 
 
-skill_loader = SkillLoader(SKILL_DIR)
+skill_loader = _get_skill_loader
 
 
 class SkillTool(BaseTool):
@@ -75,4 +84,4 @@ class SkillTool(BaseTool):
 
     def execute(self, skill_name: str) -> str:
         """获取skill内容"""
-        return skill_loader.get_content(skill_name)
+        return _get_skill_loader().get_content(skill_name)

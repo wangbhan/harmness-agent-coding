@@ -6,7 +6,7 @@ init_config()
 from internal.Agent.base_agent import Agent
 from internal.Agent.llm_config import client
 from internal.Agent.tools import default_registry, setup_delegate
-from internal.Agent.system import system
+from internal.Agent.system import get_system_prompt
 from internal.Agent.conversation_log import SessionLogger
 
 # 延迟初始化子代理（避免循环导入）
@@ -28,6 +28,7 @@ if __name__ == '__main__':
         session_log=session_log,
     )
 
+    system = get_system_prompt()
     session_log.session_start(system)
     history = [
         {"role": "system", "content": system},

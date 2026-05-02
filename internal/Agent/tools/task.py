@@ -12,8 +12,7 @@ import threading
 from pathlib import Path
 
 from internal.Agent.config import get_config
-import internal.Agent.tools.base as _base
-from internal.Agent.tools.base import BaseTool
+from internal.Agent.tools.base import BaseTool, get_workdir
 
 _TASKS: "TaskManager | None" = None
 
@@ -22,7 +21,7 @@ def _get_tasks() -> "TaskManager":
     """延迟初始化 TaskManager，确保配置和 WORKDIR 已就绪"""
     global _TASKS
     if _TASKS is None:
-        tasks_dir = _base.WORKDIR / get_config().paths.tasks_dir
+        tasks_dir = get_workdir() / get_config().paths.tasks_dir
         _TASKS = TaskManager(tasks_dir)
     return _TASKS
 

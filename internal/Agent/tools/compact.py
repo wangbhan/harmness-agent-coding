@@ -10,7 +10,7 @@
 import json
 
 from internal.Agent.config import get_config
-from internal.Agent.tools.base import BaseTool, WORKDIR, _get_file_encoding
+from internal.Agent.tools.base import BaseTool, get_workdir, _get_file_encoding
 
 TRANSCRIPT_DIR = None  # 由模块导入时从配置初始化
 
@@ -19,7 +19,7 @@ def _ensure_transcript_dir():
     global TRANSCRIPT_DIR
     if TRANSCRIPT_DIR is None:
         cfg = get_config().paths
-        TRANSCRIPT_DIR = WORKDIR / cfg.transcripts_dir
+        TRANSCRIPT_DIR = get_workdir() / cfg.transcripts_dir
 
 
 def _cfg():

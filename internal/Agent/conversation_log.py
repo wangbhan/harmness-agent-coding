@@ -8,7 +8,7 @@ from datetime import datetime, timezone
 from loguru import logger
 
 from internal.Agent.config import get_config
-from internal.Agent.tools.base import WORKDIR
+from internal.Agent.tools.base import get_workdir
 
 
 def _json_formatter(record):
@@ -34,7 +34,7 @@ class SessionLogger:
         self.level = level or log_cfg.level
         self._log_cfg = log_cfg
 
-        log_dir = WORKDIR / paths_cfg.logs_dir
+        log_dir = get_workdir() / paths_cfg.logs_dir
         log_dir.mkdir(parents=True, exist_ok=True)
 
         now = datetime.now(timezone.utc)

@@ -42,9 +42,9 @@ class DelegateTool(BaseTool):
         if self._sub_agent is None:
             return "错误：子代理未初始化"
         try:
-            from internal.Agent.system import subagent_system
+            from internal.Agent.system import get_subagent_prompt
             sub_messages = [
-                {"role": "system", "content": subagent_system},
+                {"role": "system", "content": get_subagent_prompt()},
                 {"role": "user", "content": task},
             ]
             self._sub_agent.run(sub_messages)

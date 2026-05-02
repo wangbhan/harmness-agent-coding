@@ -2,7 +2,7 @@
 工具包入口 - 显式注册所有工具到 default_registry
 """
 from internal.Agent.tools.registry import default_registry, ToolRegistry
-from internal.Agent.tools.base import BaseTool, safe_path, _get_file_encoding, WORKDIR
+from internal.Agent.tools.base import BaseTool, safe_path, _get_file_encoding, get_workdir
 
 # 导入具体工具类
 from internal.Agent.tools.bash import BashTool

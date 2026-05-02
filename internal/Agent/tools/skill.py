@@ -74,7 +74,6 @@ class SkillLoader:
         return f"<skill name=\"{name}\">\n{skill['body']}\n</skill>"
 
 
-skill_loader = _get_skill_loader
 
 
 class SkillTool(BaseTool):

@@ -8,16 +8,23 @@ import inspect
 from abc import ABC, abstractmethod
 from pathlib import Path
 
-WORKDIR: Path = None  # 由 init_workdir() 设置
+_WORKDIR: Path = None
 
 
 def init_workdir(paths_config):
     """从已加载的配置设置 WORKDIR"""
-    global WORKDIR
+    global _WORKDIR
     if paths_config.workdir:
-        WORKDIR = Path(paths_config.workdir).resolve()
+        _WORKDIR = Path(paths_config.workdir).resolve()
     else:
-        WORKDIR = Path.cwd().parent
+        _WORKDIR = Path.cwd().parent
+
+
+def get_workdir() -> Path:
+    """获取当前 WORKDIR，未初始化时抛出异常"""
+    if _WORKDIR is None:
+        raise RuntimeError("WORKDIR 尚未初始化，请先调用 init_config()")
+    return _WORKDIR
 
 
 # ============================================================
@@ -37,8 +44,9 @@ def safe_path(p: str) -> Path:
     :param p: 相对或绝对路径
     :return: 解析后的安全路径
     """
-    path = (WORKDIR / p).resolve()
-    if not path.is_relative_to(WORKDIR):
+    wd = get_workdir()
+    path = (wd / p).resolve()
+    if not path.is_relative_to(wd):
         raise ValueError("路径超出工作区范围")
     return path
 

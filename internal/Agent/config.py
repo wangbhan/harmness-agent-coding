@@ -55,6 +55,8 @@ class BashToolConfig(BaseModel):
     timeout: int = 120
     encoding: str = "utf-8"
     max_output_len: int = 5000
+    bg_timeout: int = 600
+    bg_max_concurrent: int = 5
 
 
 class ReadToolConfig(BaseModel):

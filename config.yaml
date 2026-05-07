@@ -72,6 +72,10 @@ tools:
       - "shutdown"
     # 命令执行超时时间（秒）
     timeout: 120
+    # 命令执行后台超时时间（秒）
+    bg_timeout: 600
+    # 命令后台执行最大并发数
+    bg_max_concurrent: 5
     # 命令输出编码
     encoding: "utf-8"
     # 命令输出内容的最大长度（超出截断）

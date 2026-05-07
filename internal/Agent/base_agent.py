@@ -1,6 +1,7 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 from internal.Agent.config import get_config
+from internal.Agent.tools.background import _get_bg_manager
 from internal.Agent.tools.compact import micro_compact, auto_compact
 
 
@@ -30,6 +31,13 @@ class Agent:
     def run(self, messages: list[dict]) -> None:
         """执行 agent 循环，直接修改 messages 列表。同一轮中的多个工具调用并行执行。"""
         while True:
+            # 清除BG中完成的任务并且做为消息注入
+            notifs = _get_bg_manager().drain_notifications()
+            if notifs:
+                lines = ["以下后台任务已完成："]
+                for n in notifs:
+                    lines.append(f"任务 {n['task_id']}：\n  状态：{n['status']}\n  命令：{n['command']}")
+                messages.append({"role": "system", "content": "\n".join(lines)})
             # 被动压缩旧 tool_result
             messages = micro_compact(messages)
 

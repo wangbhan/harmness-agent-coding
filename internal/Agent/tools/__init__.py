@@ -1,8 +1,9 @@
 """
 工具包入口 - 显式注册所有工具到 default_registry
 """
+from internal.Agent.tools.background import BgTool
 from internal.Agent.tools.registry import default_registry, ToolRegistry
-from internal.Agent.tools.base import BaseTool, safe_path, _get_file_encoding, get_workdir
+from internal.Agent.tools.base import safe_path, _get_file_encoding, get_workdir
 
 # 导入具体工具类
 from internal.Agent.tools.bash import BashTool
@@ -23,6 +24,7 @@ default_registry.register(ReadTool())
 default_registry.register(WriteTool())
 default_registry.register(EditTool())
 default_registry.register(SkillTool())
+default_registry.register(BgTool())
 
 # ============================================================
 # 注册任务工具（替换原 todo 工具）

@@ -8,22 +8,30 @@ import inspect
 from abc import ABC, abstractmethod
 from pathlib import Path
 
+from internal.Agent.config import get_config
+
 _WORKDIR: Path = None
+_WORKDIR_INITIALIZED: bool = False
 
 
-def init_workdir(paths_config):
-    """从已加载的配置设置 WORKDIR"""
-    global _WORKDIR
+def init_workdir(paths_config=None):
+    """初始化 WORKDIR，paths_config 为 None 时自动从 get_config 获取"""
+    global _WORKDIR, _WORKDIR_INITIALIZED
+    if _WORKDIR_INITIALIZED:
+        return
+    if paths_config is None:
+        paths_config = get_config().paths
     if paths_config.workdir:
         _WORKDIR = Path(paths_config.workdir).resolve()
     else:
         _WORKDIR = Path.cwd().parent
+    _WORKDIR_INITIALIZED = True
 
 
 def get_workdir() -> Path:
-    """获取当前 WORKDIR，未初始化时抛出异常"""
-    if _WORKDIR is None:
-        raise RuntimeError("WORKDIR 尚未初始化，请先调用 init_config()")
+    """获取当前 WORKDIR，未初始化时自动触发初始化"""
+    if not _WORKDIR_INITIALIZED:
+        init_workdir()
     return _WORKDIR
 
 

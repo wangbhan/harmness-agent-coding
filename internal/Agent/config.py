@@ -93,6 +93,7 @@ class AgentConfig(BaseModel):
 _CONFIG_DIR = Path(__file__).resolve().parent.parent.parent
 
 _config_instance: Optional[AgentConfig] = None
+_config_loaded: bool = False
 
 # 环境变量 → 配置路径映射
 _ENV_MAP = {
@@ -145,8 +146,8 @@ def _apply_env_overrides(config_dict: dict) -> dict:
 
 
 def init_config(config_dir: Path | None = None):
-    """加载并合并配置，初始化全局单例和 WORKDIR"""
-    global _config_instance
+    """加载并合并配置（通常由 get_config 自动调用，也可手动调用指定 config_dir）"""
+    global _config_instance, _config_loaded
 
     base_dir = config_dir or _CONFIG_DIR
 
@@ -156,14 +157,11 @@ def init_config(config_dir: Path | None = None):
     merged = _apply_env_overrides(merged)
 
     _config_instance = AgentConfig(**merged)
-
-    from internal.Agent.tools.base import init_workdir
-    init_workdir(_config_instance.paths)
+    _config_loaded = True
 
 
 def get_config() -> AgentConfig:
-    if _config_instance is None:
-        raise RuntimeError(
-            "配置尚未初始化，请先调用 init_config()。"
-        )
+    """获取配置，首次调用时自动加载"""
+    if not _config_loaded:
+        init_config()
     return _config_instance

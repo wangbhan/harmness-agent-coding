@@ -1,8 +1,4 @@
-# 1. 先初始化配置（必须在所有模块导入之前）
-from internal.Agent.config import init_config, get_config
-init_config()
-
-# 2. 再导入依赖配置的模块
+from internal.Agent.config import get_config
 from internal.Agent.base_agent import Agent
 from internal.Agent.llm_config import client
 from internal.Agent.tools import default_registry, setup_delegate

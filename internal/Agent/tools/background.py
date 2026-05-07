@@ -84,7 +84,9 @@ class BackGroundManager:
                 task = self.tasks.get(task_id)
                 if not task:
                     return f"任务不存在：{task_id}"
-                return f"任务状态为：{task['status']} {task['command'][:60]} \n 输出结果为：{task.get('result') or '(running)'}"
+                result = task.get('result')
+                result_display = result if result is not None else '(running)'
+                return f"任务状态为：{task['status']} {task['command'][:60]} \n 输出结果为：{result_display}"
             lines = []
             for tid, t in self.tasks.items():
                 lines.append(f"任务ID：{tid} 状态：{t['status']} 命令：{t['command'][:60]}")

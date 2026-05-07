@@ -25,7 +25,7 @@ class BashTool(BaseTool):
                 capture_output=True, text=True,
                 timeout=cfg.timeout, encoding=cfg.encoding,
             )
-            out = (result.stdout + result.stderr).strip()
+            out = ((result.stdout or "") + (result.stderr or "")).strip()
             return out[:cfg.max_output_len] if out else "没有输出"
         except subprocess.TimeoutExpired:
             return "命令执行超时"

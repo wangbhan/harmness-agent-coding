@@ -57,7 +57,7 @@ class BackGroundManager:
         try:
             result = subprocess.run(command, shell=True, cwd=self.work_dir,
                                     capture_output=True, text=True, timeout=cfg.bg_timeout, encoding=cfg.encoding)
-            output = (result.stdout + result.stderr).strip()[:cfg.max_output_len]
+            output = ((result.stdout or "") + (result.stderr or "")).strip()[:cfg.max_output_len]
             status = "completed"
         # 超时情况
         except subprocess.TimeoutExpired:

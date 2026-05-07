@@ -5,11 +5,14 @@
 ## 功能特性
 
 - **ReAct 推理-行动循环** — Agent 在"思考"与"工具调用"之间迭代，直到任务完成
-- **12 个内置工具** — bash、read、write、edit、task_create/get/list/update、skill、delegate、compact
+- **13 个内置工具** — bash、read、write、edit、task_create/get/list/update、skill、delegate、compact、background
 - **子 Agent 委派** — 将子任务委派给独立上下文的子 Agent 执行，避免主上下文膨胀
 - **三层对话压缩** — micro（被动占位）、auto（LLM 摘要）、manual（LLM 自主触发）
 - **持久化任务管理** — 任务以 JSON 存储到磁盘，支持 `blockedBy` 依赖关系，完成后自动解锁后续任务
 - **可扩展技能系统** — 预置 PDF 处理、PPTX 处理、技能创建器等技能
+- **后台任务执行** — 耗时命令异步执行，信号量控制并发上限，完成后自动通知 Agent
+- **配置中心化** — Pydantic v2 配置模型，三级加载（yaml → local → 环境变量）
+- **会话日志** — loguru JSONL 结构化日志，记录完整交互链路
 
 ## 技术栈
 
@@ -32,14 +35,17 @@ app/
 ├── daily/                      # 开发日志
 │   ├── Agent项目构建-day1.md
 │   ├── Agent项目构建-day2.md
-│   └── Agent项目构建-day3.md
+│   ├── Agent项目构建-day3.md
+│   └── Day4 后台任务执行+懒加载+添加日志+重构config.md
 ├── configs/                    # 扩展配置目录
 └── internal/
     └── Agent/
-        ├── start.py            # CLI 入口
-        ├── base_agent.py       # Agent 类（ReAct 循环）
+        ├── start.py            # CLI 入口（53行精简版）
+        ├── base_agent.py       # Agent 类（ReAct 循环 + 日志埋点）
+        ├── config.py           # Pydantic 配置模型 + 三级加载
+        ├── conversation_log.py # loguru JSONL 会话日志
         ├── llm_config.py       # LLM 客户端配置
-        ├── system.py           # 系统提示词
+        ├── system.py           # 系统提示词（动态时间）
         ├── tools/
         │   ├── __init__.py     # 工具注册入口
         │   ├── base.py         # BaseTool 抽象基类 + safe_path
@@ -52,6 +58,7 @@ app/
         │   ├── skill.py        # 技能加载器
         │   ├── sub_agent.py    # 子 Agent 委派
         │   ├── compact.py      # 三层对话压缩
+        │   ├── background.py   # 后台任务管理（异步执行 + 通知队列）
         │   └── skills/         # 预置技能定义
         │       ├── pdf/
         │       ├── pptx/
@@ -96,6 +103,7 @@ uv run python internal/Agent/start.py
 | `skill` | `tools/skill.py` | 加载并执行预置技能 |
 | `delegate` | `tools/sub_agent.py` | 将子任务委派给独立子 Agent |
 | `compact` | `tools/compact.py` | 压缩对话历史以释放上下文空间 |
+| `background` | `tools/background.py` | 后台异步执行耗时 Shell 命令，支持查询任务状态和结果 |
 
 ## 架构说明
 
@@ -132,12 +140,14 @@ Agent 在 `base_agent.py` 中实现经典的 ReAct 模式：
 
 - **路径沙箱** — `safe_path()` 函数将所有文件操作限制在工作区（`WORKDIR = cwd().parent`）内，防止路径穿越
 - **命令黑名单** — bash 工具内置危险命令过滤
+- **后台并发控制** — `threading.Semaphore` 限制最大并发后台任务数，`threading.Lock` 保证线程安全
 - **结果截断** — 文件读取和子 Agent 返回均有长度限制
 
 ## 开发日志
 
 | 日期 | 主题 |
 |------|------|
-| Day 1 | [基础框架 — 双循环架构 + 装饰器工具系统](daily/Agent项目构建-day1.md) |
-| Day 2 | [重构 Agent 类 + 并行执行 + Todo + 子 Agent](daily/Agent项目构建-day2.md) |
-| Day 3 | [BaseTool ABC 重构 + 任务持久化 + 三层压缩](daily/Agent项目构建-day3.md) |
+| Day 1 | [基础框架 — 双循环架构 + 装饰器工具系统](daily/Day 1：Agent 基础框架搭建.md) |
+| Day 2 | [重构 Agent 类 + 并行执行 + Todo + 子 Agent](daily/Day 2：工具完善 + Agent 类封装 + 子代理委派.md) |
+| Day 3 | [BaseTool ABC 重构 + 任务持久化 + 三层压缩](daily/Day 3：工具重构 + 压缩策略 + Task 任务管理.md) |
+| Day 4 | [后台任务 + 配置中心化 + 会话日志 + 架构重构](daily/Day4 后台任务执行+懒加载+添加日志+重构config.md) |

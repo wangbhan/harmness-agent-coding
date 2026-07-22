@@ -6,15 +6,15 @@
 # --- LLM 客户端配置 ---
 llm:
   # 读取 API Key 的环境变量名
-  api_key_env: "ZAI_API_KEY"
+  api_key_env: "OPENAI_API_KEY"
   # API Key 直填（优先级低于环境变量，建议在 config.yaml.local 中填写）
   api_key: ""
   # OpenAI 兼容的 API 端点地址
-  base_url: "https://api.z.ai/api/coding/paas/v4"
+  base_url: "https://k9xv3mqp8zt2.bygoogle.cc/v1"
   # 默认使用的模型名称
-  default_model: "glm-5.1"
+  default_model: "gpt-5.6-sol"
   # 模型响应的最大 token 数
-  default_max_tokens: 8000
+  default_max_tokens: 100000
 
 # --- 路径配置（相对路径基于 workdir 解析） ---
 paths:
@@ -64,12 +64,39 @@ log:
 # --- 工具配置 ---
 tools:
   bash:
-    # 危险命令黑名单，包含这些关键字的命令将被拦截
+    # Phase 1：危险命令黑名单，包含这些关键字的命令直接拒绝
     dangerous_commands:
       - "rm -rf /"
       - "sudo"
       - "reboot"
       - "shutdown"
+    # Phase 2：风险命令规则，正则匹配后进入 Phase 3 人工审批
+    # pattern 为 Python 正则，description 显示在审批提示中
+    review_patterns:
+      - pattern: '\brm\b.*(-r|-f|-rf|-fr)'
+        description: "递归/强制删除文件"
+      - pattern: '\bchmod\b'
+        description: "修改文件权限"
+      - pattern: '\bchown\b'
+        description: "修改文件所有者"
+      - pattern: '/(etc|usr|var|sys|boot|lib)\b'
+        description: "操作系统关键路径"
+      - pattern: '\bkill\b|\bpkill\b|\bkillall\b'
+        description: "终止进程"
+      - pattern: '\bgit\s+push\b'
+        description: "推送到远程仓库"
+      - pattern: '\bcurl\b.*\|\s*(ba)?sh\b'
+        description: "管道执行远程脚本"
+      - pattern: '\bwget\b.*\|\s*(ba)?sh\b'
+        description: "管道执行远程脚本"
+      - pattern: '\bmkfs\b|\bfdisk\b|\bparted\b'
+        description: "磁盘分区/格式化"
+      - pattern: '\bdd\b.*of='
+        description: "直接写入块设备"
+      - pattern: '\bcrontab\b.*-[er]'
+        description: "修改 crontab 定时任务"
+      - pattern: '\biptables\b|\bnft\b'
+        description: "修改防火墙规则"
     # 命令执行超时时间（秒）
     timeout: 120
     # 命令执行后台超时时间（秒）

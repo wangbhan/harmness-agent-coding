@@ -94,20 +94,21 @@ uv run python internal/Agent/start.py
 logger。默认同时输出到终端并同步写入：
 
 ```text
-<workdir>/.logs/sessions/session_<UTC时间>-<进程ID>.jsonl
+<project-root>/logs/sessions/session_<UTC时间>-<进程ID>.jsonl
 ```
 
 每次 LLM 或工具调用都会依次产生 `*_started`、`*_completed` 或 `*_failed`
-事件，并记录 `request_id`/`call_id`、耗时和 token usage。文件 sink 使用同步写入，
+事件，并记录 `request_id`/`call_id`、耗时和 token usage。持久化 sink 对每条日志
+执行 `flush`，默认继续执行 `fsync` 强制同步到磁盘，
 运行过程中可直接执行 `tail -f` 查看：
 
 ```bash
-tail -f <workdir>/.logs/sessions/session_*.jsonl
+tail -f logs/sessions/session_*.jsonl
 ```
 
-可在 `config.yaml` 中设置 `log.level` 和 `log.console`（也可通过
-`AGENT_LOG_LEVEL`、`AGENT_LOG_CONSOLE` 覆盖）；关闭终端输出不会影响 JSONL
-实时落盘。其他 Agent 模块也可直接记录自定义结构化事件：
+可在 `config.yaml` 中设置 `log.level`、`log.console` 和 `log.fsync`（也可通过
+`AGENT_LOG_LEVEL`、`AGENT_LOG_CONSOLE`、`AGENT_LOG_FSYNC` 覆盖）；关闭终端输出
+不会影响 JSONL 实时落盘。其他 Agent 模块也可直接记录自定义结构化事件：
 
 ```python
 from internal.conversation_log import get_logger
@@ -178,3 +179,4 @@ Agent 在 `base_agent.py` 中实现经典的 ReAct 模式：
 | Day 2 | [重构 Agent 类 + 并行执行 + Todo + 子 Agent](daily/Day 2：工具完善 + Agent 类封装 + 子代理委派.md) |
 | Day 3 | [BaseTool ABC 重构 + 任务持久化 + 三层压缩](daily/Day 3：工具重构 + 压缩策略 + Task 任务管理.md) |
 | Day 4 | [后台任务 + 配置中心化 + 会话日志 + 架构重构](daily/Day4 后台任务执行+懒加载+添加日志+重构config.md) |
+| Day 5 | [全局实时日志 + 三阶段权限认证](<daily/Day5 全局实时日志 + 三阶段权限认证.md>) |

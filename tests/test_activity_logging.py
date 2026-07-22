@@ -1,13 +1,18 @@
 import io
 import json
+import shlex
+import sys
 import tempfile
 import time
 import unittest
 from contextlib import redirect_stdout
+from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
 from internal.Agent.base_agent import Agent
+from internal.Agent.config import HooksConfig
+from internal.Agent.hooks import HookEvent, HookManager
 from internal.conversation_log import (
     _PROJECT_ROOT,
     _resolve_log_dir,
@@ -162,6 +167,70 @@ class ActivityLoggingTest(unittest.TestCase):
         resolved = _resolve_log_dir(None, cfg)
 
         self.assertEqual(resolved, _PROJECT_ROOT / "logs/sessions")
+
+    def test_hook_lifecycle_is_logged_without_sensitive_payloads(self):
+        root = Path(self.temp_dir.name)
+
+        def manager_for(name, source, *, on_error="allow"):
+            script = root / f"{name}.py"
+            script.write_text(source, encoding="utf-8")
+            command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
+            config_path = root / f"{name}.json"
+            config_path.write_text(json.dumps({"hooks": {
+                "UserPromptSubmit": [{"hooks": [{
+                    "type": "command",
+                    "command": command,
+                    "on_error": on_error,
+                }]}]
+            }}), encoding="utf-8")
+            return HookManager.from_config(
+                HooksConfig(config_path=config_path.name),
+                root,
+                workdir=root,
+                logger=self.activity_log,
+            )
+
+        success = manager_for(
+            "success",
+            """import json
+print(json.dumps({
+    "systemMessage": "operator diagnostic",
+    "hookSpecificOutput": {
+        "hookEventName": "UserPromptSubmit",
+        "updatedPrompt": "STDOUT_SECRET"
+    }
+}))
+""",
+        )
+        blocked = manager_for(
+            "blocked",
+            "import sys\nsys.stderr.write('policy denied')\nsys.exit(2)\n",
+        )
+        failed = manager_for("failed", "print('invalid-json')\n")
+
+        success.run(HookEvent.USER_PROMPT_SUBMIT, {"prompt": "PROMPT_SECRET"})
+        blocked.run(HookEvent.USER_PROMPT_SUBMIT, {"prompt": "PROMPT_SECRET"})
+        failed.run(HookEvent.USER_PROMPT_SUBMIT, {"prompt": "PROMPT_SECRET"})
+
+        hook_events = [
+            entry for entry in self._events_on_disk()
+            if entry["event"].startswith("hook_")
+        ]
+        event_names = [entry["event"] for entry in hook_events]
+        self.assertIn("hook_started", event_names)
+        self.assertIn("hook_completed", event_names)
+        self.assertIn("hook_blocked", event_names)
+        self.assertIn("hook_failed", event_names)
+        completed = next(
+            entry for entry in hook_events
+            if entry["event"] == "hook_completed"
+            and entry["data"]["decision"] == "allow"
+        )
+        self.assertEqual(completed["data"]["system_message"], "operator diagnostic")
+
+        serialized = json.dumps(hook_events, ensure_ascii=False)
+        self.assertNotIn("PROMPT_SECRET", serialized)
+        self.assertNotIn("STDOUT_SECRET", serialized)
 
 
 if __name__ == "__main__":

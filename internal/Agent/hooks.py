@@ -47,6 +47,7 @@ class HookResult:
     updated_input: dict[str, Any] | None = None
     updated_output: str | None = None
     additional_context: tuple[str, ...] = ()
+    system_message: str = ""
 
 
 class HookManager:
@@ -242,6 +243,7 @@ class HookManager:
             self._log(
                 "hook_completed", event=event.value, command=hook.command,
                 duration_ms=duration_ms, exit_code=2, decision="block",
+                system_message="",
             )
             self._log("hook_blocked", event=event.value, reason=reason[:_ERROR_LIMIT])
             return HookResult(blocked=True, reason=reason)
@@ -252,6 +254,7 @@ class HookManager:
             self._log(
                 "hook_completed", event=event.value, command=hook.command,
                 duration_ms=duration_ms, exit_code=0, decision="allow",
+                system_message="",
             )
             return HookResult()
 
@@ -264,6 +267,7 @@ class HookManager:
         self._log(
             "hook_completed", event=event.value, command=hook.command,
             duration_ms=duration_ms, exit_code=0, decision=decision,
+            system_message=result.system_message,
         )
         if result.blocked:
             self._log(
@@ -317,6 +321,7 @@ class HookManager:
             return HookResult(
                 blocked=decision == "block", reason=reason,
                 updated_prompt=prompt, additional_context=contexts,
+                system_message=system_message or "",
             )
         if event is HookEvent.PRE_TOOL_USE:
             decision = specific.get("permissionDecision", "allow")
@@ -332,6 +337,7 @@ class HookManager:
             return HookResult(
                 blocked=decision == "deny", reason=reason,
                 updated_input=updated, additional_context=contexts,
+                system_message=system_message or "",
             )
         if event is HookEvent.POST_TOOL_USE:
             decision = specific.get("decision", "allow")
@@ -341,6 +347,7 @@ class HookManager:
             return HookResult(
                 blocked=decision == "block", reason=reason,
                 updated_output=output, additional_context=contexts,
+                system_message=system_message or "",
             )
 
         decision = specific.get("decision", "allow")
@@ -349,6 +356,7 @@ class HookManager:
         return HookResult(
             blocked=decision == "block", reason=reason,
             additional_context=contexts,
+            system_message=system_message or "",
         )
 
     @staticmethod

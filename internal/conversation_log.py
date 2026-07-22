@@ -312,6 +312,52 @@ class SessionLogger:
             "content_length": len(content),
         })
 
+    def hook_started(self, *, event: str, command: str) -> None:
+        self._emit("INFO", "hook_started", {
+            "hook_event": event,
+            "command": command,
+        })
+
+    def hook_completed(
+        self,
+        *,
+        event: str,
+        command: str,
+        duration_ms: float,
+        exit_code: int,
+        decision: str,
+        system_message: str = "",
+    ) -> None:
+        self._emit("INFO", "hook_completed", {
+            "hook_event": event,
+            "command": command,
+            "duration_ms": duration_ms,
+            "exit_code": exit_code,
+            "decision": decision,
+            "system_message": system_message[:1000],
+        })
+
+    def hook_failed(
+        self,
+        *,
+        event: str,
+        command: str,
+        duration_ms: float,
+        error: str,
+    ) -> None:
+        self._emit("ERROR", "hook_failed", {
+            "hook_event": event,
+            "command": command,
+            "duration_ms": duration_ms,
+            "error": error[:1000],
+        })
+
+    def hook_blocked(self, *, event: str, reason: str) -> None:
+        self._emit("WARNING", "hook_blocked", {
+            "hook_event": event,
+            "reason": reason[:1000],
+        })
+
     def tool_call(self, tool_name: str, arguments: str, call_id: str) -> None:
         common = {"tool_name": tool_name, "call_id": call_id}
         self._emit("INFO", "tool_call_started", {

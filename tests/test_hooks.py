@@ -296,6 +296,60 @@ print(json.dumps({"hookSpecificOutput": {
         self.assertTrue(result.blocked)
         self.assertEqual(result.reason, "denied")
 
+    def test_event_specific_json_block_decisions_are_honored(self):
+        cases = [
+            (
+                HookEvent.USER_PROMPT_SUBMIT,
+                {"prompt": "hello"},
+                {"decision": "block", "reason": "prompt denied"},
+            ),
+            (
+                HookEvent.PRE_TOOL_USE,
+                {"tool_name": "bash", "tool_input": {}, "tool_use_id": "1"},
+                {
+                    "permissionDecision": "deny",
+                    "permissionDecisionReason": "tool denied",
+                },
+            ),
+            (
+                HookEvent.POST_TOOL_USE,
+                {
+                    "tool_name": "bash", "tool_input": {},
+                    "tool_use_id": "1", "tool_output": "unsafe",
+                },
+                {"decision": "block", "reason": "output denied"},
+            ),
+        ]
+        for index, (event, payload, specific) in enumerate(cases):
+            output = {
+                "hookSpecificOutput": {
+                    "hookEventName": event.value,
+                    **specific,
+                }
+            }
+            command = self.write_script(
+                f"decision-{index}.py",
+                f"import json\nprint(json.dumps({output!r}))\n",
+            )
+            manager = self.manager({
+                event.value: [{"hooks": [{"type": "command", "command": command}]}]
+            })
+
+            with self.subTest(event=event.value):
+                self.assertTrue(manager.run(event, payload).blocked)
+
+    def test_nonzero_exit_uses_fail_open_by_default(self):
+        command = self.write_script(
+            "failure.py", "import sys\nsys.stderr.write('failed')\nsys.exit(1)\n"
+        )
+        manager = self.manager({
+            "UserPromptSubmit": [{"hooks": [{"type": "command", "command": command}]}]
+        })
+
+        result = manager.run(HookEvent.USER_PROMPT_SUBMIT, {"prompt": "hello"})
+
+        self.assertFalse(result.blocked)
+
     def test_runtime_errors_follow_on_error_policy(self):
         invalid_json = self.write_script("invalid.py", "print('not-json')\n")
         for policy, blocked in (("allow", False), ("block", True)):

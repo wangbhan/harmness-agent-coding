@@ -56,5 +56,6 @@ def setup_delegate():
         client=client,
         registry=default_registry,
         tools=default_registry.get_openai_tools(exclude={"delegate"}),
+        process_user_prompts=False,
     )
     delegate_tool.bind(sub_agent)

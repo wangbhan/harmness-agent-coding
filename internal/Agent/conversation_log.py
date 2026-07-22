@@ -1,9 +1,11 @@
 """
 基于 loguru 的对话日志系统。
 每次 REPL 会话生成独立的 JSONL 文件，记录完整交互链路。
+通过 init_logger() / get_logger() 实现全局单例，任意模块可随时打印日志。
 """
 import json
 from datetime import datetime, timezone
+from typing import Optional
 
 from loguru import logger
 
@@ -22,6 +24,43 @@ def _json_formatter(record):
     }
     record["extra"]["_json_line"] = json.dumps(entry, ensure_ascii=False, default=str)
     return "{extra[_json_line]}\n"
+
+
+class _NullLogger:
+    """未初始化时的空操作 Logger，避免调用方需要守卫。"""
+    def session_start(self, *a, **kw): pass
+    def session_end(self, *a, **kw): pass
+    def user_input(self, *a, **kw): pass
+    def llm_response(self, *a, **kw): pass
+    def agent_reply(self, *a, **kw): pass
+    def tool_call(self, *a, **kw): pass
+    def tool_result(self, *a, **kw): pass
+    def error(self, *a, **kw): pass
+    def warning(self, *a, **kw): pass
+
+
+_null_logger = _NullLogger()
+_global_logger: Optional["SessionLogger"] = None
+
+
+def init_logger(level: str = None) -> "SessionLogger":
+    """初始化全局日志，在 start.py 启动时调用一次。"""
+    global _global_logger
+    _global_logger = SessionLogger(level=level)
+    return _global_logger
+
+
+def get_logger() -> "SessionLogger | _NullLogger":
+    """获取全局 Logger，未初始化时返回 _NullLogger（静默忽略所有调用）。"""
+    return _global_logger if _global_logger is not None else _null_logger
+
+
+def close_logger():
+    """刷盘并清理全局 Logger，在 start.py finally 块中调用。"""
+    global _global_logger
+    if _global_logger is not None:
+        _global_logger.close()
+        _global_logger = None
 
 
 class SessionLogger:

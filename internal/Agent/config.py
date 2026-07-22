@@ -48,9 +48,32 @@ class LogConfig(BaseModel):
     max_reply_len: int = 2000
 
 
+class ReviewPattern(BaseModel):
+    """Phase 2 风险命令规则"""
+    pattern: str
+    description: str
+
+
 class BashToolConfig(BaseModel):
     dangerous_commands: list[str] = Field(
         default_factory=lambda: ["rm -rf /", "sudo", "reboot", "shutdown"]
+    )
+    # Phase 2：需人工审批的风险命令规则（正则 + 说明）
+    review_patterns: list[ReviewPattern] = Field(
+        default_factory=lambda: [
+            ReviewPattern(pattern=r"\brm\b.*(-r|-f|-rf|-fr)",         description="递归/强制删除文件"),
+            ReviewPattern(pattern=r"\bchmod\b",                        description="修改文件权限"),
+            ReviewPattern(pattern=r"\bchown\b",                        description="修改文件所有者"),
+            ReviewPattern(pattern=r"/(etc|usr|var|sys|boot|lib)\b",   description="操作系统关键路径"),
+            ReviewPattern(pattern=r"\bkill\b|\bpkill\b|\bkillall\b",  description="终止进程"),
+            ReviewPattern(pattern=r"\bgit\s+push\b",                   description="推送到远程仓库"),
+            ReviewPattern(pattern=r"\bcurl\b.*\|\s*(ba)?sh\b",        description="管道执行远程脚本"),
+            ReviewPattern(pattern=r"\bwget\b.*\|\s*(ba)?sh\b",        description="管道执行远程脚本"),
+            ReviewPattern(pattern=r"\bmkfs\b|\bfdisk\b|\bparted\b",   description="磁盘分区/格式化"),
+            ReviewPattern(pattern=r"\bdd\b.*of=",                      description="直接写入块设备"),
+            ReviewPattern(pattern=r"\bcrontab\b.*-[er]",              description="修改 crontab 定时任务"),
+            ReviewPattern(pattern=r"\biptables\b|\bnft\b",            description="修改防火墙规则"),
+        ]
     )
     timeout: int = 120
     encoding: str = "utf-8"

@@ -1,6 +1,6 @@
 """
 将耗时的后台任务放到线程中进行执行，通过上锁的方式来保证线程安全
-1.进行危险command拦截
+1.进行三阶段认证（Phase 1/2/3）
 2.所有操作消息队列中的数据全都要上锁后进行操作，防止队列数据被无效修改
 3.添加最大后台执行任务数量，同时通过信号量的方式来保证最大后台任务数量
 4.在每次调用模型前将已完成的任务放到与模型的对话中
@@ -11,6 +11,7 @@ import uuid
 from pathlib import Path
 
 from internal.Agent.config import get_config
+from internal.Agent.auth import check_command
 from internal.Agent.tools.base import BaseTool, get_workdir
 
 _BG_MANAGER : "BackGroundManager | None" = None
@@ -35,10 +36,11 @@ class BackGroundManager:
 
     def run(self, command: str) -> str:
         cfg = get_config().tools.bash
-        # 危险command拦截
-        if any(cmd in command for cmd in cfg.dangerous_commands):
-            return "不允许执行危险命令"
-        # 并发控制
+        # ── 三阶段认证（在提交线程前同步执行，阻塞当前工作线程直到审批完成）──
+        auth = check_command(command)
+        if not auth.allowed:
+            return f"命令被拒绝：{auth.reason}"
+        # ── 并发控制（保持原逻辑不变）──────────────────────────────────────
         if not self._semaphore.acquire(blocking=False):
             return f"当前后台任务已达上线（{cfg.bg_max_concurrent}），请稍后再试"
         # 创建任务并执行任务

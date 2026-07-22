@@ -18,7 +18,56 @@ from typing import Any
 from loguru import logger
 
 from internal.Agent.config import get_config
-from internal.Agent.tools.base import get_workdir
+
+
+_PROJECT_ROOT = Path(__file__).resolve().parent.parent
+
+
+class _DurableFileSink:
+    """逐条 flush，并可通过 fsync 强制同步到磁盘的 Loguru sink。"""
+
+    def __init__(self, path: Path, *, fsync: bool):
+        self.path = path
+        self._fsync = fsync
+        self._stream = path.open("a", encoding="utf-8", buffering=1)
+        self._closed = False
+
+    def write(self, message: str) -> None:
+        if not self._closed:
+            self._stream.write(message)
+
+    def flush(self) -> None:
+        if self._closed:
+            return
+        self._stream.flush()
+        if self._fsync:
+            os.fsync(self._stream.fileno())
+
+    def stop(self) -> None:
+        if self._closed:
+            return
+        try:
+            self.flush()
+        finally:
+            self._stream.close()
+            self._closed = True
+
+
+def _resolve_log_dir(explicit_log_dir: str | Path | None, cfg) -> Path:
+    """解析日志目录；默认固定在项目根目录，避免落到意外的 cwd 父目录。"""
+    if explicit_log_dir is not None:
+        return Path(explicit_log_dir).expanduser().resolve()
+
+    configured_dir = Path(cfg.paths.logs_dir).expanduser()
+    if configured_dir.is_absolute():
+        return configured_dir.resolve()
+
+    base_dir = (
+        Path(cfg.paths.workdir).expanduser().resolve()
+        if cfg.paths.workdir
+        else _PROJECT_ROOT
+    )
+    return (base_dir / configured_dir).resolve()
 
 
 def _json_formatter(record: dict) -> str:
@@ -61,12 +110,13 @@ def init_logger(
     *,
     log_dir: str | Path | None = None,
     console: bool | None = None,
+    fsync: bool | None = None,
 ) -> "SessionLogger":
     """
     初始化进程级全局日志。
 
-    重复调用是幂等的；若需要开启新会话，请先调用 close_logger()。log_dir 和
-    console 参数主要用于非 CLI 入口及测试，省略时使用项目配置。
+    重复调用是幂等的；若需要开启新会话，请先调用 close_logger()。log_dir、
+    console 和 fsync 参数主要用于非 CLI 入口及测试，省略时使用项目配置。
     """
     global _global_logger
     with _logger_lock:
@@ -75,6 +125,7 @@ def init_logger(
                 level=level,
                 log_dir=log_dir,
                 console=console,
+                fsync=fsync,
             )
         return _global_logger
 
@@ -104,17 +155,14 @@ class SessionLogger:
         *,
         log_dir: str | Path | None = None,
         console: bool | None = None,
+        fsync: bool | None = None,
     ):
         cfg = get_config()
         self.level = (level or cfg.log.level).upper()
         self._log_cfg = cfg.log
         self._closed = False
 
-        resolved_log_dir = (
-            Path(log_dir)
-            if log_dir is not None
-            else get_workdir() / cfg.paths.logs_dir
-        )
+        resolved_log_dir = _resolve_log_dir(log_dir, cfg)
         resolved_log_dir.mkdir(parents=True, exist_ok=True)
 
         now = datetime.now(timezone.utc)
@@ -123,17 +171,23 @@ class SessionLogger:
             + f"{now.microsecond // 1000:03d}-{os.getpid()}"
         )
         self.log_path = resolved_log_dir / f"{self.session_id}.jsonl"
+        self._disk_sink = _DurableFileSink(
+            self.log_path,
+            fsync=(
+                fsync
+                if fsync is not None
+                else getattr(cfg.log, "fsync", True)
+            ),
+        )
 
         # 这是应用级全局 logger。移除 loguru 自带的 stderr sink，避免每条事件重复。
         logger.remove()
         self._sink_ids = [
             logger.add(
-                self.log_path,
+                self._disk_sink,
                 level=self.level,
                 format=_json_formatter,
-                encoding="utf-8",
                 enqueue=False,
-                delay=False,
                 catch=True,
             )
         ]

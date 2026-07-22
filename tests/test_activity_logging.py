@@ -5,9 +5,15 @@ import time
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from internal.Agent.base_agent import Agent
-from internal.conversation_log import close_logger, init_logger
+from internal.conversation_log import (
+    _PROJECT_ROOT,
+    _resolve_log_dir,
+    close_logger,
+    init_logger,
+)
 from internal.Agent.tools.base import BaseTool
 from internal.Agent.tools.registry import ToolRegistry
 
@@ -50,6 +56,7 @@ class ActivityLoggingTest(unittest.TestCase):
             level="DEBUG",
             log_dir=self.temp_dir.name,
             console=False,
+            fsync=True,
         )
 
     def tearDown(self):
@@ -125,6 +132,36 @@ class ActivityLoggingTest(unittest.TestCase):
         )
         self.assertEqual(completed["data"]["model"], "fake-model")
         self.assertEqual(completed["data"]["usage"]["completion_tokens"], 1)
+
+    def test_log_file_remains_readable_after_logger_is_closed(self):
+        log_path = self.activity_log.log_path
+        self.activity_log.info("persistence_test", {"persisted": True})
+
+        close_logger()
+
+        self.assertTrue(log_path.is_file())
+        events = [
+            json.loads(line)
+            for line in log_path.read_text(encoding="utf-8").splitlines()
+        ]
+        event_names = [entry["event"] for entry in events]
+        self.assertIn("persistence_test", event_names)
+        self.assertIn("logger_closed", event_names)
+
+    def test_each_event_can_be_fsynced(self):
+        with patch("internal.conversation_log.os.fsync") as fsync_mock:
+            self.activity_log.info("fsync_test", {})
+
+        fsync_mock.assert_called_once()
+
+    def test_default_relative_log_dir_uses_project_root(self):
+        cfg = SimpleNamespace(
+            paths=SimpleNamespace(workdir="", logs_dir="logs/sessions")
+        )
+
+        resolved = _resolve_log_dir(None, cfg)
+
+        self.assertEqual(resolved, _PROJECT_ROOT / "logs/sessions")
 
 
 if __name__ == "__main__":

@@ -42,6 +42,7 @@ class CompactConfig(BaseModel):
 class LogConfig(BaseModel):
     level: str = "DEBUG"
     console: bool = True
+    fsync: bool = True
     max_args_info: int = 500
     max_args_debug: int = 10000
     max_result_info: int = 500
@@ -127,12 +128,13 @@ _ENV_MAP = {
     "AGENT_MAX_TOKENS": ("llm", "default_max_tokens"),
     "AGENT_LOG_LEVEL": ("log", "level"),
     "AGENT_LOG_CONSOLE": ("log", "console"),
+    "AGENT_LOG_FSYNC": ("log", "fsync"),
     "AGENT_WORKDIR": ("paths", "workdir"),
 }
 
 # 需要 int 转换的配置键
 _INT_KEYS = {"default_max_tokens"}
-_BOOL_KEYS = {"console"}
+_BOOL_KEYS = {"console", "fsync"}
 
 
 def _load_yaml(path: Path) -> dict:

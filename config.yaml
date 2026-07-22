@@ -16,14 +16,14 @@ llm:
   # 模型响应的最大 token 数
   default_max_tokens: 100000
 
-# --- 路径配置（相对路径基于 workdir 解析） ---
+# --- 路径配置（不同路径的相对基准见各字段注释） ---
 paths:
-  # 工作根目录，为空时自动使用 Path.cwd().parent
+  # Agent 工作根目录；为空时工具模块使用 Path.cwd().parent
   workdir: ""
   # 对话转录文件保存目录（压缩时原始对话的落盘位置）
   transcripts_dir: ".transcripts"
-  # 会话 JSONL 日志保存目录
-  logs_dir: ".logs/sessions"
+  # 会话 JSONL 日志保存目录；相对路径默认基于项目根目录
+  logs_dir: "logs/sessions"
   # 任务持久化 JSON 文件保存目录
   tasks_dir: ".tasks"
   # 技能目录，为空时自动使用 tools/skills
@@ -52,6 +52,8 @@ log:
   level: "DEBUG"
   # 是否实时输出到终端；JSONL 文件始终同步写入
   console: true
+  # 每条日志 flush 后是否调用 fsync 强制同步到磁盘（更可靠，但写入开销更高）
+  fsync: true
   # INFO 级别日志中工具调用参数的截断长度
   max_args_info: 500
   # DEBUG 级别日志中工具调用参数的截断长度

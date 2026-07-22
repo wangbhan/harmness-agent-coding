@@ -50,6 +50,14 @@ class LogConfig(BaseModel):
     max_reply_len: int = 2000
 
 
+class HooksConfig(BaseModel):
+    """Agent 生命周期命令 Hook 配置。"""
+
+    config_path: str = ""
+    default_timeout: int = Field(default=10, gt=0)
+    stop_max_continuations: int = Field(default=5, ge=0)
+
+
 class ReviewPattern(BaseModel):
     """Phase 2 风险命令规则"""
     pattern: str
@@ -108,6 +116,7 @@ class AgentConfig(BaseModel):
     paths: PathsConfig = Field(default_factory=PathsConfig)
     compact: CompactConfig = Field(default_factory=CompactConfig)
     log: LogConfig = Field(default_factory=LogConfig)
+    hooks: HooksConfig = Field(default_factory=HooksConfig)
     tools: ToolsConfig = Field(default_factory=ToolsConfig)
 
 
@@ -119,6 +128,7 @@ _CONFIG_DIR = Path(__file__).resolve().parent.parent.parent
 
 _config_instance: Optional[AgentConfig] = None
 _config_loaded: bool = False
+_active_config_dir: Path = _CONFIG_DIR
 
 # 环境变量 → 配置路径映射
 _ENV_MAP = {
@@ -180,9 +190,9 @@ def _apply_env_overrides(config_dict: dict) -> dict:
 
 def init_config(config_dir: Path | None = None):
     """加载并合并配置（通常由 get_config 自动调用，也可手动调用指定 config_dir）"""
-    global _config_instance, _config_loaded
+    global _config_instance, _config_loaded, _active_config_dir
 
-    base_dir = config_dir or _CONFIG_DIR
+    base_dir = (config_dir or _CONFIG_DIR).resolve()
 
     base = _load_yaml(base_dir / "config.yaml")
     local = _load_yaml(base_dir / "config.yaml.local")
@@ -190,6 +200,7 @@ def init_config(config_dir: Path | None = None):
     merged = _apply_env_overrides(merged)
 
     _config_instance = AgentConfig(**merged)
+    _active_config_dir = base_dir
     _config_loaded = True
 
 
@@ -198,3 +209,10 @@ def get_config() -> AgentConfig:
     if not _config_loaded:
         init_config()
     return _config_instance
+
+
+def get_config_dir() -> Path:
+    """返回当前生效的 YAML 配置目录，用于解析相对资源路径。"""
+    if not _config_loaded:
+        init_config()
+    return _active_config_dir

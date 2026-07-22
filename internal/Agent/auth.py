@@ -62,7 +62,7 @@ def check_command(command: str) -> AuthResult:
     对命令执行三阶段认证，返回 AuthResult。
     可在任意线程中安全调用。
     """
-    from internal.Agent.conversation_log import get_logger  # 懒加载避免循环依赖
+    from internal.conversation_log import get_logger  # 懒加载避免循环依赖
     cfg = get_config().tools.bash
 
     # ── Phase 1: 拒绝列表（字符串子串匹配，保持向后兼容）─────────────────────

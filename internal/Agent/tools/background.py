@@ -7,6 +7,7 @@
 """
 import subprocess
 import threading
+import time
 import uuid
 from pathlib import Path
 
@@ -55,7 +56,15 @@ class BackGroundManager:
 
     def _work(self, task_id: str, command: str):
         """执行任务命令"""
+        from internal.conversation_log import get_logger
+
         cfg = get_config().tools.bash
+        activity_log = get_logger()
+        activity_log.info("background_task_started", {
+            "task_id": task_id,
+            "command": command[:cfg.max_output_len],
+        })
+        started_at = time.perf_counter()
         try:
             result = subprocess.run(command, shell=True, cwd=self.work_dir,
                                     capture_output=True, text=True, timeout=cfg.bg_timeout, encoding=cfg.encoding)
@@ -78,6 +87,18 @@ class BackGroundManager:
             self._notifications.append({"task_id": task_id, "status": status, "command": command[:80], "result": output[:500]})
             # 任务完成释放信号量
             self._semaphore.release()
+        event = (
+            "background_task_completed"
+            if status == "completed"
+            else "background_task_failed"
+        )
+        log_method = activity_log.info if status == "completed" else activity_log.error
+        log_method(event, {
+            "task_id": task_id,
+            "status": status,
+            "duration_ms": (time.perf_counter() - started_at) * 1000,
+            "result_summary": output[:500],
+        })
 
     def check(self, task_id: str) -> str:
         """查询单个任务状态或列出所有任务"""
@@ -119,4 +140,3 @@ class BgTool(BaseTool):
             return _get_bg_manager().run(command)
         except Exception as e:
             return f"错误：{e}"
-

@@ -50,6 +50,8 @@ compact:
 log:
   # 日志级别：DEBUG / INFO / WARNING / ERROR
   level: "DEBUG"
+  # 是否实时输出到终端；JSONL 文件始终同步写入
+  console: true
   # INFO 级别日志中工具调用参数的截断长度
   max_args_info: 500
   # DEBUG 级别日志中工具调用参数的截断长度

@@ -1,7 +1,9 @@
 from concurrent.futures import ThreadPoolExecutor, as_completed
+import time
+import uuid
 
 from internal.Agent.config import get_config
-from internal.Agent.conversation_log import get_logger
+from internal.conversation_log import get_logger
 from internal.Agent.tools.background import _get_bg_manager
 from internal.Agent.tools.compact import micro_compact, auto_compact
 
@@ -41,20 +43,47 @@ class Agent:
             # 被动压缩旧 tool_result
             messages = micro_compact(messages)
 
-            response = self.client.chat.completions.create(
+            request_id = f"req_{uuid.uuid4().hex}"
+            activity_log = get_logger()
+            activity_log.llm_request(
+                request_id=request_id,
                 model=self.model,
-                messages=messages,
-                max_tokens=self.max_tokens,
-                tools=self.tools,
+                message_count=len(messages),
+                tool_count=len(self.tools),
             )
+            started_at = time.perf_counter()
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    max_tokens=self.max_tokens,
+                    tools=self.tools,
+                )
+            except Exception as exc:
+                activity_log.llm_error(
+                    request_id=request_id,
+                    model=self.model,
+                    duration_ms=(time.perf_counter() - started_at) * 1000,
+                    error=exc,
+                )
+                raise
+
             message = response.choices[0].message
             finish_reason = response.choices[0].finish_reason
-            print("response:", response)
-            get_logger().llm_response(
+            usage = getattr(response, "usage", None)
+            if usage is not None:
+                if hasattr(usage, "model_dump"):
+                    usage = usage.model_dump(exclude_none=True)
+                elif not isinstance(usage, dict):
+                    usage = {"value": str(usage)}
+            activity_log.llm_response(
                 finish_reason=finish_reason,
                 model=self.model,
                 message_count=len(messages),
                 has_tool_calls=bool(message.tool_calls),
+                request_id=request_id,
+                duration_ms=(time.perf_counter() - started_at) * 1000,
+                usage=usage,
             )
 
             assistant_msg = message.model_dump(exclude_none=True)
@@ -62,7 +91,7 @@ class Agent:
 
             if finish_reason == "stop":
                 print("回复：", message.content)
-                get_logger().agent_reply(message.content or "")
+                activity_log.agent_reply(message.content or "")
                 return
 
             # 并行执行所有工具调用 - 一次请求中存在多个工具调用的情况
@@ -70,7 +99,10 @@ class Agent:
             with ThreadPoolExecutor() as executor:
                 future_to_id = {
                     executor.submit(
-                        self.registry.call, block.function.name, block.function.arguments
+                        self.registry.call,
+                        block.function.name,
+                        block.function.arguments,
+                        block.id,
                     ): block.id
                     for block in tool_calls
                 }
@@ -83,18 +115,6 @@ class Agent:
             compact_called = False
             for block in tool_calls:
                 output = results[block.id]
-                print(f"工具调用 [{block.function.name}]：", block.function.arguments)
-                print(f"执行结果:", output[:200])
-                get_logger().tool_call(
-                    tool_name=block.function.name,
-                    arguments=block.function.arguments,
-                    call_id=block.id,
-                )
-                get_logger().tool_result(
-                    tool_name=block.function.name,
-                    call_id=block.id,
-                    result=output,
-                )
                 messages.append({
                     "role": "tool",
                     "tool_call_id": block.id,

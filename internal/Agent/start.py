@@ -3,7 +3,7 @@ from internal.Agent.base_agent import Agent
 from internal.Agent.llm_config import client
 from internal.Agent.tools import default_registry, setup_delegate
 from internal.Agent.system import get_system_prompt
-from internal.Agent.conversation_log import init_logger, close_logger, get_logger
+from internal.conversation_log import init_logger, close_logger, get_logger
 
 # 延迟初始化子代理（避免循环导入）
 setup_delegate()

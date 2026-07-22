@@ -41,6 +41,7 @@ class CompactConfig(BaseModel):
 
 class LogConfig(BaseModel):
     level: str = "DEBUG"
+    console: bool = True
     max_args_info: int = 500
     max_args_debug: int = 10000
     max_result_info: int = 500
@@ -125,11 +126,13 @@ _ENV_MAP = {
     "AGENT_MODEL": ("llm", "default_model"),
     "AGENT_MAX_TOKENS": ("llm", "default_max_tokens"),
     "AGENT_LOG_LEVEL": ("log", "level"),
+    "AGENT_LOG_CONSOLE": ("log", "console"),
     "AGENT_WORKDIR": ("paths", "workdir"),
 }
 
 # 需要 int 转换的配置键
 _INT_KEYS = {"default_max_tokens"}
+_BOOL_KEYS = {"console"}
 
 
 def _load_yaml(path: Path) -> dict:
@@ -164,6 +167,11 @@ def _apply_env_overrides(config_dict: dict) -> dict:
                 value = int(value)
             except ValueError:
                 continue
+        elif target_key in _BOOL_KEYS:
+            normalized = value.strip().lower()
+            if normalized not in {"1", "0", "true", "false", "yes", "no", "on", "off"}:
+                continue
+            value = normalized in {"1", "true", "yes", "on"}
         d[target_key] = value
     return config_dict
 

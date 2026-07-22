@@ -12,7 +12,7 @@
 - **可扩展技能系统** — 预置 PDF 处理、PPTX 处理、技能创建器等技能
 - **后台任务执行** — 耗时命令异步执行，信号量控制并发上限，完成后自动通知 Agent
 - **配置中心化** — Pydantic v2 配置模型，三级加载（yaml → local → 环境变量）
-- **会话日志** — loguru JSONL 结构化日志，记录完整交互链路
+- **全局实时日志** — loguru JSONL 结构化日志，实时记录 LLM、工具和后台任务的调用生命周期
 
 ## 技术栈
 
@@ -39,11 +39,11 @@ app/
 │   └── Day4 后台任务执行+懒加载+添加日志+重构config.md
 ├── configs/                    # 扩展配置目录
 └── internal/
+    ├── conversation_log.py     # 全局 loguru JSONL 实时日志
     └── Agent/
         ├── start.py            # CLI 入口（53行精简版）
         ├── base_agent.py       # Agent 类（ReAct 循环 + 日志埋点）
         ├── config.py           # Pydantic 配置模型 + 三级加载
-        ├── conversation_log.py # loguru JSONL 会话日志
         ├── llm_config.py       # LLM 客户端配置
         ├── system.py           # 系统提示词（动态时间）
         ├── tools/
@@ -87,6 +87,33 @@ uv run python internal/Agent/start.py
 ```
 
 启动后进入交互式 REPL，输入问题即可与 Agent 对话，输入 `q` 或 `exit` 退出。
+
+### 实时日志
+
+日志会自动初始化，无论从 CLI、`Agent` 类还是 `ToolRegistry` 进入，都无需额外传递
+logger。默认同时输出到终端并同步写入：
+
+```text
+<workdir>/.logs/sessions/session_<UTC时间>-<进程ID>.jsonl
+```
+
+每次 LLM 或工具调用都会依次产生 `*_started`、`*_completed` 或 `*_failed`
+事件，并记录 `request_id`/`call_id`、耗时和 token usage。文件 sink 使用同步写入，
+运行过程中可直接执行 `tail -f` 查看：
+
+```bash
+tail -f <workdir>/.logs/sessions/session_*.jsonl
+```
+
+可在 `config.yaml` 中设置 `log.level` 和 `log.console`（也可通过
+`AGENT_LOG_LEVEL`、`AGENT_LOG_CONSOLE` 覆盖）；关闭终端输出不会影响 JSONL
+实时落盘。其他 Agent 模块也可直接记录自定义结构化事件：
+
+```python
+from internal.conversation_log import get_logger
+
+get_logger().info("custom_event", {"task_id": "123"})
+```
 
 ## 工具列表
 

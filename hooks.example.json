@@ -1,0 +1,8 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [],
+    "PreToolUse": [],
+    "PostToolUse": [],
+    "Stop": []
+  }
+}

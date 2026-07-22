@@ -65,6 +65,16 @@ log:
   # Agent 回复内容在日志中的截断长度
   max_reply_len: 2000
 
+# --- Agent 生命周期 Hook ---
+hooks:
+  # Claude Code 风格 Hook JSON 文件路径；为空时禁用。
+  # 相对路径以本 config.yaml 所在目录为基准。
+  config_path: ""
+  # 单个 command Hook 未设置 timeout 时的默认超时（秒）
+  default_timeout: 10
+  # Stop Hook 单次 Agent.run() 最多强制续跑次数
+  stop_max_continuations: 5
+
 # --- 工具配置 ---
 tools:
   bash:

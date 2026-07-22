@@ -13,6 +13,7 @@
 - **后台任务执行** — 耗时命令异步执行，信号量控制并发上限，完成后自动通知 Agent
 - **配置中心化** — Pydantic v2 配置模型，三级加载（yaml → local → 环境变量）
 - **全局实时日志** — loguru JSONL 结构化日志，实时记录 LLM、工具和后台任务的调用生命周期
+- **可配置生命周期 Hook** — 通过独立 JSON 配置 UserPromptSubmit、PreToolUse、PostToolUse 和 Stop 命令 Hook
 
 ## 技术栈
 
@@ -31,6 +32,7 @@
 app/
 ├── pyproject.toml              # 项目依赖
 ├── config.yaml                 # 配置文件
+├── hooks.example.json          # Hook JSON 空白模板
 ├── README.md
 ├── daily/                      # 开发日志
 │   ├── Agent项目构建-day1.md
@@ -45,6 +47,7 @@ app/
         ├── base_agent.py       # Agent 类（ReAct 循环 + 日志埋点）
         ├── config.py           # Pydantic 配置模型 + 三级加载
         ├── llm_config.py       # LLM 客户端配置
+        ├── hooks.py            # Hook 加载、匹配、命令协议与结果合并
         ├── system.py           # 系统提示词（动态时间）
         ├── tools/
         │   ├── __init__.py     # 工具注册入口
@@ -149,6 +152,80 @@ Agent 在 `base_agent.py` 中实现经典的 ReAct 模式：
 - **BaseTool**（`tools/base.py`）：抽象基类，子类只需定义 `name` 属性和 `execute()` 方法
 - **自动 Schema 生成**：从 `execute()` 的函数签名和 docstring 自动生成 OpenAI tool definition
 - **ToolRegistry**（`tools/registry.py`）：统一管理工具注册、查找和调用
+
+### 生命周期 Hook
+
+Hook 定义保存在独立 JSON 文件中，主配置只负责指定它的位置和运行时默认值：
+
+```yaml
+hooks:
+  config_path: "hooks.json"
+  default_timeout: 10
+  stop_max_continuations: 5
+```
+
+`config_path` 为空时功能关闭；相对路径以 `config.yaml` 所在目录为基准。配置了不存在或非法的 JSON 文件时，Agent 会在启动阶段报错，避免权限 Hook 被静默跳过。
+
+JSON 采用 Claude Code 风格的事件分组结构。例如，在 `bash`、`write` 或 `edit` 执行前运行权限脚本：
+
+```json
+{
+  "hooks": {
+    "UserPromptSubmit": [],
+    "PreToolUse": [
+      {
+        "matcher": "bash|write|edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python scripts/check_tool.py",
+            "timeout": 10,
+            "on_error": "block"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [],
+    "Stop": []
+  }
+}
+```
+
+`matcher` 是对完整工具名执行的 Python 正则匹配；省略或为空表示匹配全部。匹配的 Hook 按 JSON 中的顺序串行执行，前一个 Hook 的输入改写会传递给后一个 Hook。不同工具通过 Pre Hook 后仍保持并行执行，Post Hook 再按原始工具调用顺序处理。
+
+命令在 Agent 工作目录中运行，从 stdin 接收 JSON，并在 stdout 返回 JSON。所有事件输入都包含 `hook_event_name` 和 `cwd`，事件字段如下：
+
+| 事件 | stdin 附加字段 | `hookSpecificOutput` 控制字段 |
+|------|----------------|--------------------------------|
+| `UserPromptSubmit` | `prompt` | `decision`、`reason`、`updatedPrompt`、`additionalContext` |
+| `PreToolUse` | `tool_name`、`tool_input`、`tool_use_id` | `permissionDecision`、`permissionDecisionReason`、`updatedInput`、`additionalContext` |
+| `PostToolUse` | 工具字段及 `tool_output` | `decision`、`reason`、`updatedOutput`、`additionalContext` |
+| `Stop` | `assistant_message`、`continuation_count` | `decision`、`reason`、`additionalContext` |
+
+例如，PreToolUse Hook 可以修改参数并注入上下文：
+
+```json
+{
+  "systemMessage": "权限检查完成",
+  "hookSpecificOutput": {
+    "hookEventName": "PreToolUse",
+    "permissionDecision": "allow",
+    "permissionDecisionReason": "命令安全",
+    "updatedInput": {
+      "command": "git status"
+    },
+    "additionalContext": "当前仓库处于受保护分支"
+  }
+}
+```
+
+退出码约定：
+
+- `0`：解析 stdout；stdout 为空表示无修改放行。
+- `2`：阻断当前事件，原因读取 stderr。
+- 其他非零退出码、超时或非法 stdout：默认记录错误后放行；配置 `on_error: "block"` 时改为阻断。
+
+`Stop` 返回 `decision: "block"` 会把 `reason` 注入对话并强制 LLM 继续，单次 `Agent.run()` 默认最多续跑 5 次。UserPromptSubmit 只处理真实用户输入；其余三类 Hook 对主 Agent 和子 Agent 都生效。
 
 ### 三层压缩策略
 

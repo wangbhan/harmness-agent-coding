@@ -73,8 +73,12 @@ tools:
     # Phase 2：风险命令规则，正则匹配后进入 Phase 3 人工审批
     # pattern 为 Python 正则，description 显示在审批提示中
     review_patterns:
-      - pattern: '\brm\b.*(-r|-f|-rf|-fr)'
-        description: "递归/强制删除文件"
+      - pattern: '\brm\b'
+        description: "删除文件（含工作目录外）"
+      - pattern: '\bmv\b'
+        description: "移动/重命名文件（可能影响工作目录外的文件）"
+      - pattern: '(\$HOME|~/|/Users/)'
+        description: "操作用户主目录（工作目录外）的路径"
       - pattern: '\bchmod\b'
         description: "修改文件权限"
       - pattern: '\bchown\b'

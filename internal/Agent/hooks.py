@@ -2,7 +2,9 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import signal
 import subprocess
 import threading
 import time
@@ -218,19 +220,34 @@ class HookManager:
     ) -> HookResult:
         self._log("hook_started", event=event.value, command=hook.command)
         started_at = time.perf_counter()
+        popen_options: dict[str, Any] = {}
+        if os.name == "nt":
+            popen_options["creationflags"] = subprocess.CREATE_NEW_PROCESS_GROUP
+        else:
+            popen_options["start_new_session"] = True
         try:
-            completed = subprocess.run(
+            process = subprocess.Popen(
                 hook.command,
                 shell=True,
                 cwd=self.workdir,
-                input=json.dumps(payload, ensure_ascii=False),
-                text=True,
-                capture_output=True,
+                stdin=subprocess.PIPE,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                **popen_options,
+            )
+            stdout_bytes, stderr_bytes = process.communicate(
+                input=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
                 timeout=hook.timeout,
             )
         except subprocess.TimeoutExpired:
+            self._terminate_process_tree(process)
+            process.communicate()
             return self._runtime_error(
-                hook, event, started_at, f"Hook timed out after {hook.timeout}s"
+                hook,
+                event,
+                started_at,
+                f"Hook timed out after {hook.timeout}s",
+                timed_out=True,
             )
         except OSError as exc:
             return self._runtime_error(
@@ -238,8 +255,11 @@ class HookManager:
             )
 
         duration_ms = (time.perf_counter() - started_at) * 1000
-        if completed.returncode == 2:
-            reason = completed.stderr.strip() or _BLOCK_REASON
+        if process.returncode == 2:
+            reason = (
+                stderr_bytes.decode("utf-8", errors="replace").strip()
+                or _BLOCK_REASON
+            )
             self._log(
                 "hook_completed", event=event.value, command=hook.command,
                 duration_ms=duration_ms, exit_code=2, decision="block",
@@ -247,10 +267,25 @@ class HookManager:
             )
             self._log("hook_blocked", event=event.value, reason=reason[:_ERROR_LIMIT])
             return HookResult(blocked=True, reason=reason)
-        if completed.returncode != 0:
-            detail = completed.stderr.strip() or f"exit code {completed.returncode}"
-            return self._runtime_error(hook, event, started_at, detail)
-        if not completed.stdout.strip():
+
+        try:
+            stdout = stdout_bytes.decode("utf-8")
+            stderr = stderr_bytes.decode("utf-8")
+        except UnicodeDecodeError as exc:
+            return self._runtime_error(
+                hook,
+                event,
+                started_at,
+                f"Invalid UTF-8 hook output: {exc}",
+                exit_code=process.returncode,
+            )
+
+        if process.returncode != 0:
+            detail = stderr.strip() or f"exit code {process.returncode}"
+            return self._runtime_error(
+                hook, event, started_at, detail, exit_code=process.returncode
+            )
+        if not stdout.strip():
             self._log(
                 "hook_completed", event=event.value, command=hook.command,
                 duration_ms=duration_ms, exit_code=0, decision="allow",
@@ -259,9 +294,15 @@ class HookManager:
             return HookResult()
 
         try:
-            result = self._parse_output(event, completed.stdout)
+            result = self._parse_output(event, stdout)
         except (ValueError, TypeError, json.JSONDecodeError) as exc:
-            return self._runtime_error(hook, event, started_at, f"Invalid hook output: {exc}")
+            return self._runtime_error(
+                hook,
+                event,
+                started_at,
+                f"Invalid hook output: {exc}",
+                exit_code=0,
+            )
 
         decision = "block" if result.blocked else "allow"
         self._log(
@@ -276,18 +317,41 @@ class HookManager:
             )
         return result
 
+    @staticmethod
+    def _terminate_process_tree(process: subprocess.Popen) -> None:
+        """终止超时 Hook 的整个进程树并由调用方回收父进程。"""
+        if os.name == "nt":
+            subprocess.run(
+                ["taskkill", "/F", "/T", "/PID", str(process.pid)],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if process.poll() is None:
+                process.kill()
+            return
+        try:
+            os.killpg(process.pid, signal.SIGKILL)
+        except ProcessLookupError:
+            pass
+
     def _runtime_error(
         self,
         hook: CommandHook,
         event: HookEvent,
         started_at: float,
         detail: str,
+        *,
+        exit_code: int | None = None,
+        timed_out: bool = False,
     ) -> HookResult:
         bounded = detail[:_ERROR_LIMIT]
         self._log(
             "hook_failed", event=event.value, command=hook.command,
             duration_ms=(time.perf_counter() - started_at) * 1000,
             error=bounded,
+            exit_code=exit_code,
+            timed_out=timed_out,
         )
         if hook.on_error == "block":
             self._log("hook_blocked", event=event.value, reason=bounded)
@@ -386,14 +450,18 @@ def get_hook_manager() -> HookManager:
     with _hook_manager_lock:
         if _hook_manager is None:
             from internal.Agent.tools.base import get_workdir
-            from internal.conversation_log import get_logger
 
             cfg = get_config()
+            activity_logger = None
+            if cfg.hooks.config_path.strip():
+                from internal.conversation_log import get_logger
+
+                activity_logger = get_logger()
             _hook_manager = HookManager.from_config(
                 cfg.hooks,
                 get_config_dir(),
                 workdir=get_workdir(),
-                logger=get_logger(),
+                logger=activity_logger,
             )
         return _hook_manager
 

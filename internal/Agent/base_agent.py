@@ -243,7 +243,10 @@ class Agent:
                     "tool_call_id": block.id,
                     "content": output,
                 })
-                if block.function.name == "compact":
+                if (
+                    block.function.name == "compact"
+                    and block.id in approved_ids
+                ):
                     compact_called = True
 
             context_message = self._context_message(hook_contexts)

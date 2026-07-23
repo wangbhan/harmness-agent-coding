@@ -5,6 +5,7 @@ import time
 import unittest
 from contextlib import redirect_stdout
 from types import SimpleNamespace
+from unittest.mock import patch
 
 from internal.Agent.base_agent import Agent
 from internal.Agent.hooks import HookEvent, HookResult
@@ -289,6 +290,52 @@ class ToolHookTest(unittest.TestCase):
             [event for event, _payload in manager.calls].count(HookEvent.POST_TOOL_USE),
             2,
         )
+
+    def test_denied_compact_call_does_not_trigger_compaction(self):
+        def handler(event, payload):
+            if (
+                event is HookEvent.PRE_TOOL_USE
+                and payload["tool_name"] == "compact"
+            ):
+                return HookResult(blocked=True, reason="compact denied")
+            return HookResult()
+
+        manager = FakeHookManager(handler)
+        calls = [tool_call("compact-1", "compact", {})]
+        agent, _completions = make_agent(
+            [(FakeMessage(None, calls), "tool_calls"), (FakeMessage("done"), "stop")],
+            manager,
+        )
+
+        with patch("internal.Agent.base_agent.auto_compact") as compact_mock:
+            with redirect_stdout(io.StringIO()):
+                agent.run([{"role": "user", "content": "run"}])
+
+        compact_mock.assert_not_called()
+
+    def test_blocked_post_hook_replaces_tool_output(self):
+        def handler(event, _payload):
+            if event is HookEvent.POST_TOOL_USE:
+                return HookResult(blocked=True, reason="unsafe output")
+            return HookResult()
+
+        records = []
+        registry = ToolRegistry()
+        registry.register(RecordingTool("echo", records))
+        manager = FakeHookManager(handler)
+        calls = [tool_call("echo-1", "echo", {"text": "secret"})]
+        agent, _completions = make_agent(
+            [(FakeMessage(None, calls), "tool_calls"), (FakeMessage("done"), "stop")],
+            manager,
+            registry,
+        )
+        messages = [{"role": "user", "content": "run"}]
+
+        with redirect_stdout(io.StringIO()):
+            agent.run(messages)
+
+        tool_message = next(message for message in messages if message["role"] == "tool")
+        self.assertEqual(tool_message["content"], "unsafe output")
 
 
 if __name__ == "__main__":

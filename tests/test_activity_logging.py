@@ -171,7 +171,7 @@ class ActivityLoggingTest(unittest.TestCase):
     def test_hook_lifecycle_is_logged_without_sensitive_payloads(self):
         root = Path(self.temp_dir.name)
 
-        def manager_for(name, source, *, on_error="allow"):
+        def manager_for(name, source, *, on_error="allow", timeout=10):
             script = root / f"{name}.py"
             script.write_text(source, encoding="utf-8")
             command = f"{shlex.quote(sys.executable)} {shlex.quote(str(script))}"
@@ -181,6 +181,7 @@ class ActivityLoggingTest(unittest.TestCase):
                     "type": "command",
                     "command": command,
                     "on_error": on_error,
+                    "timeout": timeout,
                 }]}]
             }}), encoding="utf-8")
             return HookManager.from_config(
@@ -207,10 +208,14 @@ print(json.dumps({
             "import sys\nsys.stderr.write('policy denied')\nsys.exit(2)\n",
         )
         failed = manager_for("failed", "print('invalid-json')\n")
+        timed_out = manager_for(
+            "timed-out", "import time\ntime.sleep(2)\n", timeout=1
+        )
 
         success.run(HookEvent.USER_PROMPT_SUBMIT, {"prompt": "PROMPT_SECRET"})
         blocked.run(HookEvent.USER_PROMPT_SUBMIT, {"prompt": "PROMPT_SECRET"})
         failed.run(HookEvent.USER_PROMPT_SUBMIT, {"prompt": "PROMPT_SECRET"})
+        timed_out.run(HookEvent.USER_PROMPT_SUBMIT, {"prompt": "PROMPT_SECRET"})
 
         hook_events = [
             entry for entry in self._events_on_disk()
@@ -227,6 +232,11 @@ print(json.dumps({
             and entry["data"]["decision"] == "allow"
         )
         self.assertEqual(completed["data"]["system_message"], "operator diagnostic")
+        failed_events = [
+            entry for entry in hook_events if entry["event"] == "hook_failed"
+        ]
+        self.assertTrue(any(entry["data"]["exit_code"] == 0 for entry in failed_events))
+        self.assertTrue(any(entry["data"]["timed_out"] for entry in failed_events))
 
         serialized = json.dumps(hook_events, ensure_ascii=False)
         self.assertNotIn("PROMPT_SECRET", serialized)

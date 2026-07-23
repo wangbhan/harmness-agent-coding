@@ -344,12 +344,16 @@ class SessionLogger:
         command: str,
         duration_ms: float,
         error: str,
+        exit_code: int | None,
+        timed_out: bool,
     ) -> None:
         self._emit("ERROR", "hook_failed", {
             "hook_event": event,
             "command": command,
             "duration_ms": duration_ms,
             "error": error[:1000],
+            "exit_code": exit_code,
+            "timed_out": timed_out,
         })
 
     def hook_blocked(self, *, event: str, reason: str) -> None:

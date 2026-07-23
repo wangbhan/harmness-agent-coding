@@ -1,9 +1,12 @@
 import json
+import os
 import shlex
 import sys
 import tempfile
+import time
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from pydantic import ValidationError
 
@@ -14,11 +17,17 @@ from internal.Agent.config import (
     get_config_dir,
     init_config,
 )
-from internal.Agent.hooks import HookEvent, HookManager
+from internal.Agent.hooks import (
+    HookEvent,
+    HookManager,
+    get_hook_manager,
+    reset_hook_manager,
+)
 
 
 class HooksConfigTest(unittest.TestCase):
     def tearDown(self):
+        reset_hook_manager()
         init_config(_CONFIG_DIR)
 
     def test_defaults_and_active_config_directory(self):
@@ -52,6 +61,19 @@ class HooksConfigTest(unittest.TestCase):
     def test_stop_continuation_limit_cannot_be_negative(self):
         with self.assertRaises(ValidationError):
             HooksConfig(stop_max_continuations=-1)
+
+    def test_disabled_hooks_do_not_eagerly_initialize_logger(self):
+        with tempfile.TemporaryDirectory() as directory:
+            config_dir = Path(directory)
+            (config_dir / "config.yaml").write_text("{}\n", encoding="utf-8")
+            init_config(config_dir)
+            reset_hook_manager()
+
+            with patch("internal.conversation_log.get_logger") as logger_mock:
+                manager = get_hook_manager()
+
+            self.assertFalse(manager.enabled)
+            logger_mock.assert_not_called()
 
 
 class HookTestCase(unittest.TestCase):
@@ -137,6 +159,28 @@ class HookLoadingTest(HookTestCase):
                 self.root,
                 workdir=self.root,
             )
+
+    def test_invalid_json_file_is_an_error(self):
+        (self.root / "hooks.json").write_text("{invalid", encoding="utf-8")
+
+        with self.assertRaisesRegex(ValueError, "有效 JSON"):
+            HookManager.from_config(
+                HooksConfig(config_path="hooks.json"),
+                self.root,
+                workdir=self.root,
+            )
+
+    def test_absolute_config_path_is_supported(self):
+        config = self.write_hooks({"Stop": []})
+        absolute_config = HooksConfig(
+            config_path=str((self.root / config.config_path).resolve())
+        )
+
+        manager = HookManager.from_config(
+            absolute_config, self.root / "unused", workdir=self.root
+        )
+
+        self.assertFalse(manager.enabled)
 
     def test_invalid_hook_documents_are_rejected(self):
         invalid_documents = [
@@ -296,6 +340,61 @@ print(json.dumps({"hookSpecificOutput": {
         self.assertTrue(result.blocked)
         self.assertEqual(result.reason, "denied")
 
+    def test_exit_code_two_without_stderr_uses_fallback_reason(self):
+        command = self.write_script("deny-empty.py", "import sys\nsys.exit(2)\n")
+        manager = self.manager({
+            "Stop": [{"hooks": [{"type": "command", "command": command}]}]
+        })
+
+        result = manager.run(HookEvent.STOP, {
+            "assistant_message": "done", "continuation_count": 0,
+        })
+
+        self.assertTrue(result.blocked)
+        self.assertTrue(result.reason)
+
+    def test_exit_code_two_blocks_even_with_invalid_utf8_output(self):
+        sources = [
+            "import sys\nsys.stderr.buffer.write(b'\\xff')\nsys.exit(2)\n",
+            "import sys\nsys.stdout.buffer.write(b'\\xff')\nsys.exit(2)\n",
+        ]
+        for index, source in enumerate(sources):
+            command = self.write_script(f"deny-bytes-{index}.py", source)
+            manager = self.manager({
+                "PreToolUse": [{"hooks": [{
+                    "type": "command", "command": command,
+                    "on_error": "allow",
+                }]}]
+            })
+
+            result = manager.run(HookEvent.PRE_TOOL_USE, {
+                "tool_name": "bash", "tool_input": {}, "tool_use_id": "bytes",
+            })
+
+            with self.subTest(index=index):
+                self.assertTrue(result.blocked)
+                self.assertTrue(result.reason)
+
+    def test_process_launch_error_honors_block_policy(self):
+        config = self.write_hooks({
+            "Stop": [{"hooks": [{
+                "type": "command", "command": "ignored", "on_error": "block"
+            }]}]
+        })
+        missing_workdir = self.root / "removed-workdir"
+        missing_workdir.mkdir()
+        manager = HookManager.from_config(
+            config, self.root, workdir=missing_workdir
+        )
+        missing_workdir.rmdir()
+
+        result = manager.run(HookEvent.STOP, {
+            "assistant_message": "done", "continuation_count": 0,
+        })
+
+        self.assertTrue(result.blocked)
+        self.assertIn("process failed", result.reason.lower())
+
     def test_event_specific_json_block_decisions_are_honored(self):
         cases = [
             (
@@ -363,6 +462,52 @@ print(json.dumps({"hookSpecificOutput": {
                 result = manager.run(HookEvent.USER_PROMPT_SUBMIT, {"prompt": "hi"})
                 self.assertEqual(result.blocked, blocked)
 
+    def test_invalid_utf8_output_follows_on_error_policy(self):
+        invalid_utf8 = self.write_script(
+            "invalid-utf8.py",
+            "import sys\nsys.stdout.buffer.write(b'\\xff')\n",
+        )
+        for policy, blocked in (("allow", False), ("block", True)):
+            with self.subTest(policy=policy):
+                manager = self.manager({
+                    "UserPromptSubmit": [{"hooks": [{
+                        "type": "command", "command": invalid_utf8,
+                        "on_error": policy,
+                    }]}]
+                })
+
+                result = manager.run(
+                    HookEvent.USER_PROMPT_SUBMIT, {"prompt": "你好"}
+                )
+
+                self.assertEqual(result.blocked, blocked)
+
+    def test_command_protocol_uses_utf8_for_unicode_input_and_output(self):
+        command = self.write_script(
+            "unicode.py",
+            """import json, sys
+data = json.loads(sys.stdin.buffer.read().decode("utf-8"))
+assert data["prompt"] == "你好，世界"
+output = {"hookSpecificOutput": {
+    "hookEventName": "UserPromptSubmit",
+    "updatedPrompt": data["prompt"] + "！"
+}}
+sys.stdout.buffer.write(json.dumps(output, ensure_ascii=False).encode("utf-8"))
+""",
+        )
+        manager = self.manager({
+            "UserPromptSubmit": [{"hooks": [{
+                "type": "command", "command": command, "on_error": "block"
+            }]}]
+        })
+
+        result = manager.run(
+            HookEvent.USER_PROMPT_SUBMIT, {"prompt": "你好，世界"}
+        )
+
+        self.assertFalse(result.blocked)
+        self.assertEqual(result.updated_prompt, "你好，世界！")
+
     def test_timeout_follows_block_policy(self):
         sleeper = self.write_script("slow.py", "import time\ntime.sleep(2)\n")
         path = self.root / "hooks.json"
@@ -382,6 +527,51 @@ print(json.dumps({"hookSpecificOutput": {
 
         self.assertTrue(result.blocked)
         self.assertIn("timed out", result.reason.lower())
+
+    @unittest.skipIf(os.name == "nt", "POSIX process-group semantics")
+    def test_timeout_terminates_hook_child_processes(self):
+        marker = self.root / "child-finished"
+        child = self.root / "child.py"
+        child.write_text(
+            """import sys, time
+from pathlib import Path
+time.sleep(1.2)
+Path(sys.argv[1]).write_text("finished", encoding="utf-8")
+""",
+            encoding="utf-8",
+        )
+        parent = self.root / "parent.py"
+        parent.write_text(
+            """import subprocess, sys, time
+subprocess.Popen([sys.executable, sys.argv[1], sys.argv[2]])
+time.sleep(10)
+""",
+            encoding="utf-8",
+        )
+        command = " ".join([
+            shlex.quote(sys.executable),
+            shlex.quote(str(parent)),
+            shlex.quote(str(child)),
+            shlex.quote(str(marker)),
+        ])
+        path = self.root / "hooks.json"
+        path.write_text(json.dumps({"hooks": {
+            "Stop": [{"hooks": [{
+                "type": "command", "command": command,
+                "timeout": 1, "on_error": "block",
+            }]}]
+        }}), encoding="utf-8")
+        manager = HookManager.from_config(
+            HooksConfig(config_path="hooks.json"), self.root, workdir=self.root
+        )
+
+        result = manager.run(HookEvent.STOP, {
+            "assistant_message": "done", "continuation_count": 0,
+        })
+        time.sleep(0.5)
+
+        self.assertTrue(result.blocked)
+        self.assertFalse(marker.exists())
 
     def test_mismatched_event_and_wrong_known_field_types_are_errors(self):
         bad_outputs = [

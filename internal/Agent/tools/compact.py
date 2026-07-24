@@ -34,22 +34,30 @@ def _cfg():
     return get_config().compact
 
 def _message_has_tool_use(msg: dict) -> bool:
-    """判断message数组中是否存在调用tool的情况"""
+    """判断 assistant 消息是否包含工具调用，同时兼容 OpenAI 和 Anthropic 格式。"""
     if msg.get("role") != "assistant":
         return False
+    # OpenAI 格式
+    if msg.get("tool_calls"):
+        return True
+    # Anthropic 格式：content 是列表，含 type=="tool_use" 块
     content = msg.get("content", [])
-    if not content:
-        return False
-    return any(content_item.get("type") == "tool_use" for content_item in content)
+    if isinstance(content, list):
+        return any(b.get("type") == "tool_use" for b in content)
+    return False
 
-def _is_tool_result_message(msg: dict):
-    """判断当前的message数组中是否是tool_result的情况"""
-    if msg.get("role") != "user":
-        return False
-    content = msg.get("content", [])
-    if not content:
-        return False
-    return any(content_item.get("type") == "tool_result" for content_item in content)
+
+def _is_tool_result_message(msg: dict) -> bool:
+    """判断消息是否是工具结果，同时兼容 OpenAI 和 Anthropic 格式。"""
+    # OpenAI 格式
+    if msg.get("role") == "tool":
+        return True
+    # Anthropic 格式：role=="user" 且 content 列表中含 type=="tool_result" 块
+    if msg.get("role") == "user":
+        content = msg.get("content", [])
+        if isinstance(content, list):
+            return any(b.get("type") == "tool_result" for b in content)
+    return False
 
 def _persist_large_output(tool_use_id, output: str) -> str:
     """用于判断将大文件输出进行落盘并优化tool_result的输出"""
@@ -79,59 +87,90 @@ def snip_compact(messages: list, max_message: int = 50):
 
 
 def tool_result_budget(messages: list) -> list:
-    """计算tool_result的占用字符数，超过 budget_max 时将大条目落盘"""
+    """计算 tool_result 的占用字符数，超过 budget_max 时将大条目落盘。
+    同时兼容 OpenAI（role=="tool"）和 Anthropic（role=="user" 含 tool_result 块）格式。
+    """
     cfg = _cfg()
-    last = messages[-1]
-    if not last.get("role") == "user" or not isinstance(last.get("content"), list):
+
+    # 收集所有工具结果项：(容器对象, 内容getter, 内容setter, tool_use_id)
+    # 用可变容器 + 键/索引来实现就地修改
+    entries: list[tuple[dict, str]] = []  # (msg_or_block, tool_id)
+
+    for msg in messages:
+        if msg.get("role") == "tool":
+            # OpenAI 格式：整条消息就是工具结果
+            entries.append((msg, msg.get("tool_call_id", "unknown")))
+        elif msg.get("role") == "user" and isinstance(msg.get("content"), list):
+            # Anthropic 格式：content 列表中的 tool_result 块
+            for block in msg["content"]:
+                if block.get("type") == "tool_result":
+                    entries.append((block, block.get("tool_use_id", "unknown")))
+
+    if not entries:
         return messages
 
-    blocks = [(i, b) for i, b in enumerate(last.get("content")) if b.get("type") == "tool_result"]
-    total = sum(len(str(b["content"])) for i, b in blocks)
+    def _get_content(obj: dict) -> str:
+        return str(obj.get("content", ""))
 
+    total = sum(len(_get_content(obj)) for obj, _ in entries)
     if total < cfg.budget_max:
         return messages
 
-    for i, b in blocks:
+    for obj, tid in entries:
         if total < cfg.budget_max:
             break
-        content = str(b["content"])
+        content = _get_content(obj)
         if len(content) < cfg.persist_threshold:
             continue
-        tid = b.get("tool_use_id", "unknown")
-        b["content"] = _persist_large_output(tid, content)
-        total = sum(len(str(b["content"])) for i, b in blocks)
+        obj["content"] = _persist_large_output(tid, content)
+        total = sum(len(_get_content(o)) for o, _ in entries)
     return messages
 
 
 def micro_compact(messages: list):
-    """将旧的tool_result变为占位符，并且保留某些读取的结果防止工具再次调用"""
+    """将旧的 tool_result 变为占位符，保留某些读取结果防止工具再次调用。
+    同时兼容 OpenAI（role=="tool"）和 Anthropic（role=="user" 含 tool_result 块）格式。
+    """
     cfg = _cfg()
-    tool_results = []
-    for i, msg in enumerate(messages):
+    preserve = set(cfg.preserve_result_tools)
+
+    # 收集所有工具结果项：(可变对象引用, tool_id)
+    # OpenAI: msg 本身；Anthropic: content 列表里的 block
+    tool_results: list[tuple[dict, str]] = []
+    for msg in messages:
         if msg.get("role") == "tool":
-            tool_results.append((i, msg))
+            tool_results.append((msg, msg.get("tool_call_id", "")))
+        elif msg.get("role") == "user" and isinstance(msg.get("content"), list):
+            for block in msg["content"]:
+                if block.get("type") == "tool_result":
+                    tool_results.append((block, block.get("tool_use_id", "")))
 
     if len(tool_results) <= cfg.keep_recent:
         return messages
 
-    tool_map = {}
+    # 构建 tool_id → tool_name 映射，兼容两种格式
+    tool_map: dict[str, str] = {}
     for msg in messages:
         if msg.get("role") == "assistant":
-            for tool_call in msg.get("tool_calls", []):
-                tool_map[tool_call["id"]] = tool_call["function"]["name"]
+            # OpenAI 格式
+            for tc in msg.get("tool_calls") or []:
+                tool_map[tc["id"]] = tc["function"]["name"]
+            # Anthropic 格式
+            content = msg.get("content", [])
+            if isinstance(content, list):
+                for block in content:
+                    if block.get("type") == "tool_use":
+                        tool_map[block["id"]] = block["name"]
 
     to_clear = tool_results[:-cfg.keep_recent]
-    preserve = set(cfg.preserve_result_tools)
-
-    for i, msg in to_clear:
-        content = msg.get("content")
+    for obj, tool_id in to_clear:
+        content = obj.get("content")
         if not isinstance(content, str) or len(content) <= 100:
             continue
-        tool_id = msg.get("tool_call_id", "")
         tool_name = tool_map.get(tool_id, "unknown")
         if tool_name in preserve:
             continue
-        msg["content"] = f"[Previous: used {tool_name}]"
+        obj["content"] = f"[Previous: used {tool_name}]"
 
     return messages
 
@@ -148,13 +187,14 @@ def auto_compact(messages: list, client, model: str = None, topic: str = "") -> 
             f.write(json.dumps(msg, default=str) + "\n")
     print(f"[对话已经保存至： {transcript_path}]")
     conversation_text = json.dumps(messages, default=str)[-cfg.conversation_slice:]
-    response = client.chat.completions.create(
+    response = client.create(
         model=model,
         messages=[{"role": "user", "content":
             "请对本次对话进行总结，以确保后续工作的连贯性。总结内容应包含："
             "1) 已取得的成果；2) 当前的进展状态；3) 已做出的关键决策。 "
             "请力求简洁，但务必保留关键细节。\n\n" + conversation_text}],
         max_tokens=cfg.max_tokens,
+        tools=[],
     )
     summary = response.choices[0].message.content or "未生成摘要。"
     return f"[对话已压缩。对话保存位置： {transcript_path}]\n\n{summary}"

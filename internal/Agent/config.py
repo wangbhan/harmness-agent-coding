@@ -15,6 +15,7 @@ from pydantic import BaseModel, Field
 # ============================================================
 
 class LLMConfig(BaseModel):
+    provider: str = "openai"  # "openai" | "anthropic"
     api_key_env: str = "ZAI_API_KEY"
     api_key: str = ""
     base_url: str = "https://api.z.ai/api/coding/paas/v4"

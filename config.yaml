@@ -5,6 +5,8 @@
 
 # --- LLM 客户端配置 ---
 llm:
+  # API 提供商：openai（含所有 OpenAI 兼容端点）或 anthropic（Anthropic 原生 API）
+  provider: "openai"
   # 读取 API Key 的环境变量名
   api_key_env: "OPENAI_API_KEY"
   # API Key 直填（优先级低于环境变量，建议在 config.yaml.local 中填写）

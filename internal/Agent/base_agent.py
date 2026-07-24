@@ -106,7 +106,7 @@ class Agent:
             )
             started_at = time.perf_counter()
             try:
-                response = self.client.chat.completions.create(
+                response = self.client.create(
                     model=self.model,
                     messages=messages,
                     max_tokens=self.max_tokens,

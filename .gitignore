@@ -9,6 +9,8 @@ wheels/
 # Virtual environments
 .venv
 
+.idea
+
 # Session logs
 internal/.logs/
 logs/

@@ -37,6 +37,8 @@ class CompactConfig(BaseModel):
     model: str = "glm-5.1"
     conversation_slice: int = 80000
     max_tokens: int = 2000
+    persist_threshold: int = 30000
+    budget_max: int = 200 * 1024
 
 
 class LogConfig(BaseModel):

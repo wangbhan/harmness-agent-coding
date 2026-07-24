@@ -12,7 +12,8 @@ import json
 from internal.Agent.config import get_config
 from internal.Agent.tools.base import BaseTool, get_workdir, _get_file_encoding
 
-TRANSCRIPT_DIR = None  # 由模块导入时从配置初始化
+TRANSCRIPT_DIR = None
+_TOOL_RESULT_PATH = None
 
 
 def _ensure_transcript_dir():
@@ -22,8 +23,84 @@ def _ensure_transcript_dir():
         TRANSCRIPT_DIR = get_workdir() / cfg.transcripts_dir
 
 
+def _get_tool_result_path():
+    global _TOOL_RESULT_PATH
+    if _TOOL_RESULT_PATH is None:
+        _TOOL_RESULT_PATH = get_workdir() / ".tool_task" / "tool_result"
+    return _TOOL_RESULT_PATH
+
+
 def _cfg():
     return get_config().compact
+
+def _message_has_tool_use(msg: dict) -> bool:
+    """判断message数组中是否存在调用tool的情况"""
+    if msg.get("role") != "assistant":
+        return False
+    content = msg.get("content", [])
+    if not content:
+        return False
+    return any(content_item.get("type") == "tool_use" for content_item in content)
+
+def _is_tool_result_message(msg: dict):
+    """判断当前的message数组中是否是tool_result的情况"""
+    if msg.get("role") != "user":
+        return False
+    content = msg.get("content", [])
+    if not content:
+        return False
+    return any(content_item.get("type") == "tool_result" for content_item in content)
+
+def _persist_large_output(tool_use_id, output: str) -> str:
+    """用于判断将大文件输出进行落盘并优化tool_result的输出"""
+    path_dir = _get_tool_result_path()
+    path_dir.mkdir(exist_ok=True, parents=True)
+    path = path_dir / f"{tool_use_id}.txt"
+    if not path.exists(): path.write_text(output)
+    return f"<persisted-output>\n全部输出已保存至: {path}\nPreview: {output[:2000]}...\n</persisted_output>"
+
+
+def snip_compact(messages: list, max_message: int = 50):
+    """将message保留50条(头3条，尾47条)，但是要保证tool_use和tool_result成对出现"""
+    if len(messages) <= max_message:
+        return messages
+    head_end, tail_start = 3, len(messages) - (max_message - 3)
+
+    if head_end > 0 and _message_has_tool_use(messages[head_end - 1]):
+        while head_end < len(messages) and _is_tool_result_message(messages[head_end]):
+            head_end += 1
+
+    while tail_start < len(messages) and _is_tool_result_message(messages[tail_start]):
+        tail_start += 1
+
+    if head_end > tail_start:
+        return messages
+    return messages[:head_end] + [{"role": "user", "content": f"[snipped {tail_start - head_end} msgs]"}] + messages[tail_start:]
+
+
+def tool_result_budget(messages: list) -> list:
+    """计算tool_result的占用字符数，超过 budget_max 时将大条目落盘"""
+    cfg = _cfg()
+    last = messages[-1]
+    if not last.get("role") == "user" or not isinstance(last.get("content"), list):
+        return messages
+
+    blocks = [(i, b) for i, b in enumerate(last.get("content")) if b.get("type") == "tool_result"]
+    total = sum(len(str(b["content"])) for i, b in blocks)
+
+    if total < cfg.budget_max:
+        return messages
+
+    for i, b in blocks:
+        if total < cfg.budget_max:
+            break
+        content = str(b["content"])
+        if len(content) < cfg.persist_threshold:
+            continue
+        tid = b.get("tool_use_id", "unknown")
+        b["content"] = _persist_large_output(tid, content)
+        total = sum(len(str(b["content"])) for i, b in blocks)
+    return messages
 
 
 def micro_compact(messages: list):

@@ -7,7 +7,7 @@ from internal.Agent.config import get_config
 from internal.Agent.hooks import HookEvent, get_hook_manager
 from internal.conversation_log import get_logger
 from internal.Agent.tools.background import _get_bg_manager
-from internal.Agent.tools.compact import micro_compact, auto_compact
+from internal.Agent.tools.compact import micro_compact, auto_compact, snip_compact, tool_result_budget
 
 
 # ============================================================
@@ -92,7 +92,9 @@ class Agent:
                     lines.append(f"任务 {n['task_id']}：\n  状态：{n['status']}\n  命令：{n['command']}")
                 messages.append({"role": "system", "content": "\n".join(lines)})
             # 被动压缩旧 tool_result
-            messages = micro_compact(messages)
+            messages[:] = tool_result_budget(messages)
+            messages[:] = snip_compact(messages)
+            messages[:] = micro_compact(messages)
 
             request_id = f"req_{uuid.uuid4().hex}"
             activity_log = get_logger()

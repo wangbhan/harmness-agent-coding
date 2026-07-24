@@ -45,6 +45,10 @@ compact:
   conversation_slice: 80000
   # 摘要生成时的 max_tokens
   max_tokens: 2000
+  # 单条 tool_result 超过此字节数时将输出落盘（避免撑大对话历史）
+  persist_threshold: 30000
+  # tool_result 总占用超过此字节数时触发落盘逻辑
+  budget_max: 204800
 
 # --- 日志系统配置 ---
 log:

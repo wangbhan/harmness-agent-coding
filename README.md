@@ -21,8 +21,8 @@
 |------|------|
 | 语言 | Python 3.13 |
 | 包管理 | [uv](https://docs.astral.sh/uv/) |
-| LLM SDK | OpenAI SDK |
-| LLM 后端 | z.ai API — GLM-5.1 |
+| LLM SDK | Anthropic SDK |
+| LLM 后端 | Anthropic Claude（支持兼容端点/代理） |
 | 数据校验 | Pydantic v2 |
 | 配置解析 | PyYAML |
 
@@ -74,7 +74,7 @@ app/
 ### 1. 设置环境变量
 
 ```bash
-export ZAI_API_KEY="your-api-key"
+export ANTHROPIC_API_KEY="your-api-key"
 ```
 
 ### 2. 安装依赖
@@ -90,6 +90,26 @@ uv run python internal/Agent/start.py
 ```
 
 启动后进入交互式 REPL，输入问题即可与 Agent 对话，输入 `q` 或 `exit` 退出。
+
+### LLM 配置
+
+`config.yaml` 的 `llm:` 段控制客户端行为，可在 `config.yaml.local` 中覆盖：
+
+```yaml
+llm:
+  api_key_env: "ANTHROPIC_API_KEY"   # 读取 API Key 的环境变量名
+  base_url: ""                        # 兼容端点/代理；空则用官方 https://api.anthropic.com
+  default_model: "claude-sonnet-4-6"
+  default_max_tokens: 4096
+  stream: false                       # 是否流式输出
+```
+
+**流式与非流式（`stream`）**：
+
+- `stream: true`：调用 `client.messages.stream`，生成过程实时逐字输出。`default_max_tokens` 较大（估算生成时间超过 10 分钟）时**必须开启**，否则 Anthropic SDK 抛 `ValueError: Streaming is required for operations that may take longer than 10 minutes`。
+- `stream: false`：调用 `client.messages.create`，阻塞等待完整响应，结束时统一打印 `回复：...`。
+
+**`parsed_output` 注意事项**：不能直接用 `block.model_dump()` 把响应内容块追加回 messages——`TextBlock.model_dump()` 会带出 `parsed_output` 等 SDK 内部字段，下一轮发回 API 时报 `400 ...parsed_output: Extra inputs are not permitted`。assistant 消息的 content 必须**手动构造**，只保留 `type`/`text`/`id`/`name`/`input` 等标准字段。该处理在 `base_agent.py` 中已内置，使用方无需关心。
 
 ### 实时日志
 
@@ -145,7 +165,7 @@ Agent 在 `base_agent.py` 中实现经典的 ReAct 模式：
 1. **推理** — LLM 接收完整消息历史 + 工具定义，决定下一步行动
 2. **行动** — 若 LLM 请求工具调用，通过 `ThreadPoolExecutor` 并行执行所有调用
 3. **观察** — 工具结果追加到消息历史，回到步骤 1
-4. **终止** — 当 LLM 直接返回文本回复（`finish_reason == "stop"`）时循环结束
+4. **终止** — 当 LLM 直接返回文本回复（`stop_reason == "end_turn"`）时循环结束
 
 ### 工具注册机制
 
@@ -257,3 +277,5 @@ JSON 采用 Claude Code 风格的事件分组结构。例如，在 `bash`、`wri
 | Day 3 | [BaseTool ABC 重构 + 任务持久化 + 三层压缩](daily/Day 3：工具重构 + 压缩策略 + Task 任务管理.md) |
 | Day 4 | [后台任务 + 配置中心化 + 会话日志 + 架构重构](daily/Day4 后台任务执行+懒加载+添加日志+重构config.md) |
 | Day 5 | [全局实时日志 + 三阶段权限认证](<daily/Day5 全局实时日志 + 三阶段权限认证.md>) |
+| Day 6 | [可配置 Agent 生命周期 Hook](<daily/Day6 Agent 生命周期 Hook.md>) |
+| Day 7 | [对话历史压缩 + Anthropic 原生格式统一](<daily/Day7 对话历史压缩 + Anthropic 原生格式统一.md>) |

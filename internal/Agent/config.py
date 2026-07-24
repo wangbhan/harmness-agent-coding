@@ -15,12 +15,12 @@ from pydantic import BaseModel, Field
 # ============================================================
 
 class LLMConfig(BaseModel):
-    provider: str = "openai"  # "openai" | "anthropic"
-    api_key_env: str = "ZAI_API_KEY"
+    api_key_env: str = "ANTHROPIC_API_KEY"
     api_key: str = ""
-    base_url: str = "https://api.z.ai/api/coding/paas/v4"
-    default_model: str = "glm-5.1"
+    base_url: str = ""
+    default_model: str = "claude-sonnet-4-6"
     default_max_tokens: int = 8000
+    stream: bool = True
 
 
 class PathsConfig(BaseModel):

@@ -33,6 +33,7 @@ class Agent:
         self.tools = tools
         self.model = model or cfg.default_model
         self.max_tokens = max_tokens if max_tokens is not None else cfg.default_max_tokens
+        self.stream = cfg.stream
         self.hook_manager = hook_manager if hook_manager is not None else get_hook_manager()
         self.process_user_prompts = process_user_prompts
 
@@ -106,12 +107,28 @@ class Agent:
             )
             started_at = time.perf_counter()
             try:
-                response = self.client.create(
-                    model=self.model,
-                    messages=messages,
-                    max_tokens=self.max_tokens,
-                    tools=self.tools,
-                )
+                system_parts = [m["content"] for m in messages if m.get("role") == "system" and m.get("content")]
+                dialog = [m for m in messages if m.get("role") != "system"]
+                kwargs = {
+                    "model": self.model,
+                    "messages": dialog,
+                    "max_tokens": self.max_tokens,
+                }
+                if self.tools:
+                    kwargs["tools"] = self.tools
+                if system_parts:
+                    kwargs["system"] = "\n\n".join(system_parts)
+                if self.stream:
+                    printed_text = False
+                    with self.client.messages.stream(**kwargs) as stream:
+                        for chunk in stream.text_stream:
+                            print(chunk, end="", flush=True)
+                            printed_text = True
+                        response = stream.get_final_message()
+                    if printed_text:
+                        print()
+                else:
+                    response = self.client.messages.create(**kwargs)
             except Exception as exc:
                 activity_log.llm_error(
                     request_id=request_id,
@@ -121,32 +138,36 @@ class Agent:
                 )
                 raise
 
-            message = response.choices[0].message
-            finish_reason = response.choices[0].finish_reason
+            stop_reason = response.stop_reason
             usage = getattr(response, "usage", None)
-            if usage is not None:
-                if hasattr(usage, "model_dump"):
-                    usage = usage.model_dump(exclude_none=True)
-                elif not isinstance(usage, dict):
-                    usage = {"value": str(usage)}
+            if usage is not None and hasattr(usage, "model_dump"):
+                usage = usage.model_dump()
+            assistant_content = []
+            for b in response.content:
+                if b.type == "text":
+                    assistant_content.append({"type": "text", "text": b.text})
+                elif b.type == "tool_use":
+                    assistant_content.append({"type": "tool_use", "id": b.id, "name": b.name, "input": b.input})
+            assistant_msg = {"role": "assistant", "content": assistant_content}
+            messages.append(assistant_msg)
+            text = "".join(b.text for b in response.content if b.type == "text")
+            tool_uses = [b for b in response.content if b.type == "tool_use"]
+
             activity_log.llm_response(
-                finish_reason=finish_reason,
+                stop_reason=stop_reason,
                 model=self.model,
                 message_count=len(messages),
-                has_tool_calls=bool(message.tool_calls),
+                has_tool_uses=bool(tool_uses),
                 request_id=request_id,
                 duration_ms=(time.perf_counter() - started_at) * 1000,
                 usage=usage,
             )
 
-            assistant_msg = message.model_dump(exclude_none=True)
-            messages.append(assistant_msg)
-
-            if finish_reason == "stop":
+            if stop_reason == "end_turn":
                 stop_result = self.hook_manager.run(
                     HookEvent.STOP,
                     {
-                        "assistant_message": message.content or "",
+                        "assistant_message": text,
                         "continuation_count": stop_continuation_count,
                     },
                 )
@@ -171,22 +192,22 @@ class Agent:
                             "continuation_count": stop_continuation_count,
                         },
                     )
-                print("回复：", message.content)
-                activity_log.agent_reply(message.content or "")
-                return message.content or ""
+                if not self.stream:
+                    print("回复：", text)
+                activity_log.agent_reply(text)
+                return text
 
             # Pre Hook 按原始顺序执行，获准的工具继续并行执行。
-            tool_calls = message.tool_calls
             prepared_inputs = {}
             results = {}
             approved_calls = []
             hook_contexts: list[str] = []
-            for block in tool_calls:
-                tool_input = json.loads(block.function.arguments)
+            for block in tool_uses:
+                tool_input = block.input
                 pre_result = self.hook_manager.run(
                     HookEvent.PRE_TOOL_USE,
                     {
-                        "tool_name": block.function.name,
+                        "tool_name": block.name,
                         "tool_input": tool_input,
                         "tool_use_id": block.id,
                     },
@@ -206,7 +227,7 @@ class Agent:
                 future_to_id = {
                     executor.submit(
                         self.registry.call,
-                        block.function.name,
+                        block.name,
                         json.dumps(prepared_inputs[block.id], ensure_ascii=False),
                         block.id,
                     ): block.id
@@ -218,13 +239,13 @@ class Agent:
 
             # Post Hook 也按原始顺序执行，保证副作用确定。
             approved_ids = {block.id for block in approved_calls}
-            for block in tool_calls:
+            for block in tool_uses:
                 if block.id not in approved_ids:
                     continue
                 post_result = self.hook_manager.run(
                     HookEvent.POST_TOOL_USE,
                     {
-                        "tool_name": block.function.name,
+                        "tool_name": block.name,
                         "tool_input": prepared_inputs[block.id],
                         "tool_use_id": block.id,
                         "tool_output": results[block.id],
@@ -238,18 +259,20 @@ class Agent:
 
             # 按原始顺序追加结果，最后再注入上下文，保持协议要求的消息顺序。
             compact_called = False
-            for block in tool_calls:
+            tool_result_blocks = []
+            for block in tool_uses:
                 output = results[block.id]
-                messages.append({
-                    "role": "tool",
-                    "tool_call_id": block.id,
+                tool_result_blocks.append({
+                    "type": "tool_result",
+                    "tool_use_id": block.id,
                     "content": output,
                 })
                 if (
-                    block.function.name == "compact"
+                    block.name == "compact"
                     and block.id in approved_ids
                 ):
                     compact_called = True
+            messages.append({"role": "user", "content": tool_result_blocks})
 
             context_message = self._context_message(hook_contexts)
             if context_message is not None:

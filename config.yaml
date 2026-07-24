@@ -3,20 +3,20 @@
 # 提交到 Git，本地覆盖请创建 config.yaml.local
 # ============================================================
 
-# --- LLM 客户端配置 ---
+# --- LLM 客户端配置（Anthropic 原生 API） ---
 llm:
-  # API 提供商：openai（含所有 OpenAI 兼容端点）或 anthropic（Anthropic 原生 API）
-  provider: "openai"
   # 读取 API Key 的环境变量名
-  api_key_env: "OPENAI_API_KEY"
+  api_key_env: "ANTHROPIC_API_KEY"
   # API Key 直填（优先级低于环境变量，建议在 config.yaml.local 中填写）
   api_key: ""
-  # OpenAI 兼容的 API 端点地址
-  base_url: "https://k9xv3mqp8zt2.bygoogle.cc/v1"
+  # Anthropic 兼容的 API 端点地址（代理/网关）；为空时使用官方端点 https://api.anthropic.com
+  base_url: "https://k9xv3mqp8zt2.bygoogle.cc/"
   # 默认使用的模型名称
-  default_model: "gpt-5.6-sol"
+  default_model: "claude-sonnet-4-6"
   # 模型响应的最大 token 数
-  default_max_tokens: 100000
+  default_max_tokens: 4096
+  # 是否使用流式输出（max_tokens 较大时建议开启，否则可能触发 10 分钟长请求限制）
+  stream: false
 
 # --- 路径配置（不同路径的相对基准见各字段注释） ---
 paths:

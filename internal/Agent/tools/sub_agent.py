@@ -7,20 +7,17 @@ from internal.Agent.config import get_config
 from internal.Agent.tools.base import BaseTool
 
 DELEGATE_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "delegate",
-        "description": "将子任务委派给子代理执行。子代理拥有独立的工具集，完成指定任务后返回结果摘要。",
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task": {
-                    "type": "string",
-                    "description": "要委派给子代理的任务描述，应包含充分的上下文和预期目标",
-                },
+    "name": "delegate",
+    "description": "将子任务委派给子代理执行。子代理拥有独立的工具集，完成指定任务后返回结果摘要。",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "task": {
+                "type": "string",
+                "description": "要委派给子代理的任务描述，应包含充分的上下文和预期目标",
             },
-            "required": ["task"],
         },
+        "required": ["task"],
     },
 }
 
@@ -49,10 +46,14 @@ class DelegateTool(BaseTool):
             ]
             self._sub_agent.run(sub_messages)
             last = sub_messages[-1]
-            content = last.get("content", "")
-            if not content:
+            content = last.get("content")
+            if isinstance(content, list):
+                text = "".join(b.get("text", "") for b in content if isinstance(b, dict) and b.get("type") == "text")
+            else:
+                text = content or ""
+            if not text:
                 return "子代理未返回文本内容"
-            return content[:get_config().tools.sub_agent.max_result_len]
+            return text[:get_config().tools.sub_agent.max_result_len]
         except Exception as e:
             return f"子代理执行失败：{e}"
 

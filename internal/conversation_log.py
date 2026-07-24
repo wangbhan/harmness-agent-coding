@@ -271,10 +271,10 @@ class SessionLogger:
 
     def llm_response(
         self,
-        finish_reason: str,
+        stop_reason: str,
         model: str,
         message_count: int,
-        has_tool_calls: bool,
+        has_tool_uses: bool,
         *,
         request_id: str = "",
         duration_ms: float | None = None,
@@ -282,10 +282,10 @@ class SessionLogger:
     ) -> None:
         self._emit("INFO", "llm_call_completed", {
             "request_id": request_id,
-            "finish_reason": finish_reason,
+            "stop_reason": stop_reason,
             "model": model,
             "message_count": message_count,
-            "has_tool_calls": has_tool_calls,
+            "has_tool_uses": has_tool_uses,
             "duration_ms": duration_ms,
             "usage": usage or {},
         })

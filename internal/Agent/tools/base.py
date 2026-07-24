@@ -112,7 +112,7 @@ class BaseTool(ABC):
     子类可选覆盖：
       - description: str 类属性，默认从 execute 的 docstring 提取
       - param_descriptions: dict，默认从 execute 的 docstring :param 提取
-      - schema_override: dict，自定义 OpenAI schema，覆盖自动生成
+      - schema_override: dict，自定义 Anthropic schema，覆盖自动生成
     """
 
     name: str = ""
@@ -125,8 +125,8 @@ class BaseTool(ABC):
         """工具执行入口，子类应使用具体参数签名"""
         ...
 
-    def to_openai_schema(self) -> dict:
-        """从 execute 方法签名自动生成 OpenAI tool definition"""
+    def to_anthropic_schema(self) -> dict:
+        """从 execute 方法签名自动生成 Anthropic tool definition"""
         if self.schema_override:
             return self.schema_override
 
@@ -153,16 +153,13 @@ class BaseTool(ABC):
                 required.append(pname)
 
         schema = {
-            "type": "function",
-            "function": {
-                "name": self.name,
-                "description": resolved_desc,
-                "parameters": {
-                    "type": "object",
-                    "properties": properties,
-                },
+            "name": self.name,
+            "description": resolved_desc,
+            "input_schema": {
+                "type": "object",
+                "properties": properties,
             },
         }
         if required:
-            schema["function"]["parameters"]["required"] = required
+            schema["input_schema"]["required"] = required
         return schema

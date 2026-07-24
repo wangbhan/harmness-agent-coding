@@ -54,35 +54,32 @@ class TodoManager:
 # 模块级管理器实例
 _todo_manager = TodoManager()
 
-# 自定义 OpenAI schema（嵌套 array 类型，无法自动生成）
+# 自定义 Anthropic schema（嵌套 array 类型，无法自动生成）
 TODO_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "todo",
-        "description": "更新任务列表，跟踪多步骤任务的进度",
-        "parameters": {
-            "type": "object",
-            "properties": {
+    "name": "todo",
+    "description": "更新任务列表，跟踪多步骤任务的进度",
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "items": {
+                "type": "array",
+                "description": "任务列表，每项包含 id、text、status",
                 "items": {
-                    "type": "array",
-                    "description": "任务列表，每项包含 id、text、status",
-                    "items": {
-                        "type": "object",
-                        "properties": {
-                            "id": {"type": "string", "description": "任务ID"},
-                            "text": {"type": "string", "description": "任务描述"},
-                            "status": {
-                                "type": "string",
-                                "enum": ["pending", "in_progress", "completed"],
-                                "description": "任务状态",
-                            },
+                    "type": "object",
+                    "properties": {
+                        "id": {"type": "string", "description": "任务ID"},
+                        "text": {"type": "string", "description": "任务描述"},
+                        "status": {
+                            "type": "string",
+                            "enum": ["pending", "in_progress", "completed"],
+                            "description": "任务状态",
                         },
-                        "required": ["id", "text", "status"],
                     },
-                }
-            },
-            "required": ["items"],
+                    "required": ["id", "text", "status"],
+                },
+            }
         },
+        "required": ["items"],
     },
 }
 

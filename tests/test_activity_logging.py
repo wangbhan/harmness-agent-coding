@@ -32,25 +32,43 @@ class _EchoTool(BaseTool):
         return text
 
 
-class _FakeMessage:
-    content = "done"
-    tool_calls = None
-
-    def model_dump(self, **_kwargs):
-        return {"role": "assistant", "content": self.content}
-
-
-class _FakeCompletions:
-    def create(self, **_kwargs):
+class _FakeMessages:
+    def _make_response(self):
         return SimpleNamespace(
-            choices=[SimpleNamespace(message=_FakeMessage(), finish_reason="stop")],
+            content=[SimpleNamespace(
+                type="text",
+                text="done",
+                model_dump=lambda: {"type": "text", "text": "done"},
+            )],
+            stop_reason="end_turn",
             usage=SimpleNamespace(
                 model_dump=lambda **_kwargs: {
-                    "prompt_tokens": 5,
-                    "completion_tokens": 1,
+                    "input_tokens": 5,
+                    "output_tokens": 1,
                 }
             ),
         )
+
+    def stream(self, **_kwargs):
+        return _FakeStream(self._make_response())
+
+    def create(self, **_kwargs):
+        return self._make_response()
+
+
+class _FakeStream:
+    def __init__(self, response):
+        self.response = response
+        self.text_stream = iter(())
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def get_final_message(self):
+        return self.response
 
 
 class ActivityLoggingTest(unittest.TestCase):
@@ -113,9 +131,7 @@ class ActivityLoggingTest(unittest.TestCase):
         self.assertEqual(failed[0]["data"]["error_type"], "JSONDecodeError")
 
     def test_llm_call_lifecycle_is_logged(self):
-        client = SimpleNamespace(
-            chat=SimpleNamespace(completions=_FakeCompletions())
-        )
+        client = SimpleNamespace(messages=_FakeMessages())
         agent = Agent(
             client=client,
             registry=ToolRegistry(),
@@ -136,7 +152,7 @@ class ActivityLoggingTest(unittest.TestCase):
             started["data"]["request_id"], completed["data"]["request_id"]
         )
         self.assertEqual(completed["data"]["model"], "fake-model")
-        self.assertEqual(completed["data"]["usage"]["completion_tokens"], 1)
+        self.assertEqual(completed["data"]["usage"]["output_tokens"], 1)
 
     def test_log_file_remains_readable_after_logger_is_closed(self):
         log_path = self.activity_log.log_path

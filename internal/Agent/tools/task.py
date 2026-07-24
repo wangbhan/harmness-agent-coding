@@ -127,33 +127,30 @@ class TaskManager:
 # ============================================================
 
 TASK_UPDATE_SCHEMA = {
-    "type": "function",
-    "function": {
-        "name": "task_update",
-        "description": ("更新任务状态或依赖关系。可将任务标记为 pending/in_progress/completed，"
-                        "完成后自动解除后续任务的阻塞。也可添加或移除前置依赖。"),
-        "parameters": {
-            "type": "object",
-            "properties": {
-                "task_id": {"type": "integer", "description": "要更新的任务ID"},
-                "status": {
-                    "type": "string",
-                    "enum": ["pending", "in_progress", "completed"],
-                    "description": "任务新状态，completed 时自动解锁后续任务",
-                },
-                "add_blocked_by": {
-                    "type": "array",
-                    "items": {"type": "integer"},
-                    "description": "添加前置依赖的任务ID列表",
-                },
-                "remove_blocked_by": {
-                    "type": "array",
-                    "items": {"type": "integer"},
-                    "description": "移除前置依赖的任务ID列表",
-                },
+    "name": "task_update",
+    "description": ("更新任务状态或依赖关系。可将任务标记为 pending/in_progress/completed，"
+                    "完成后自动解除后续任务的阻塞。也可添加或移除前置依赖。"),
+    "input_schema": {
+        "type": "object",
+        "properties": {
+            "task_id": {"type": "integer", "description": "要更新的任务ID"},
+            "status": {
+                "type": "string",
+                "enum": ["pending", "in_progress", "completed"],
+                "description": "任务新状态，completed 时自动解锁后续任务",
             },
-            "required": ["task_id"],
+            "add_blocked_by": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "添加前置依赖的任务ID列表",
+            },
+            "remove_blocked_by": {
+                "type": "array",
+                "items": {"type": "integer"},
+                "description": "移除前置依赖的任务ID列表",
+            },
         },
+        "required": ["task_id"],
     },
 }
 

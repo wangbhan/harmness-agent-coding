@@ -18,11 +18,11 @@ class ToolRegistry:
         """注册一个工具实例"""
         self._tools[tool_instance.name] = tool_instance
 
-    def get_openai_tools(self, exclude: set[str] | None = None) -> list[dict]:
-        """返回所有已注册工具的 OpenAI 格式 schema 列表"""
+    def get_anthropic_tools(self, exclude: set[str] | None = None) -> list[dict]:
+        """返回所有已注册工具的 Anthropic 格式 schema 列表"""
         exclude = exclude or set()
         return [
-            tool.to_openai_schema()
+            tool.to_anthropic_schema()
             for name, tool in self._tools.items()
             if name not in exclude
         ]

@@ -34,13 +34,9 @@ def _cfg():
     return get_config().compact
 
 def _message_has_tool_use(msg: dict) -> bool:
-    """判断 assistant 消息是否包含工具调用，同时兼容 OpenAI 和 Anthropic 格式。"""
+    """判断 assistant 消息是否包含工具调用（content 含 tool_use 块）。"""
     if msg.get("role") != "assistant":
         return False
-    # OpenAI 格式
-    if msg.get("tool_calls"):
-        return True
-    # Anthropic 格式：content 是列表，含 type=="tool_use" 块
     content = msg.get("content", [])
     if isinstance(content, list):
         return any(b.get("type") == "tool_use" for b in content)
@@ -48,11 +44,7 @@ def _message_has_tool_use(msg: dict) -> bool:
 
 
 def _is_tool_result_message(msg: dict) -> bool:
-    """判断消息是否是工具结果，同时兼容 OpenAI 和 Anthropic 格式。"""
-    # OpenAI 格式
-    if msg.get("role") == "tool":
-        return True
-    # Anthropic 格式：role=="user" 且 content 列表中含 type=="tool_result" 块
+    """判断消息是否是工具结果（user 消息含 tool_result 块）。"""
     if msg.get("role") == "user":
         content = msg.get("content", [])
         if isinstance(content, list):
@@ -97,11 +89,7 @@ def tool_result_budget(messages: list) -> list:
     entries: list[tuple[dict, str]] = []  # (msg_or_block, tool_id)
 
     for msg in messages:
-        if msg.get("role") == "tool":
-            # OpenAI 格式：整条消息就是工具结果
-            entries.append((msg, msg.get("tool_call_id", "unknown")))
-        elif msg.get("role") == "user" and isinstance(msg.get("content"), list):
-            # Anthropic 格式：content 列表中的 tool_result 块
+        if msg.get("role") == "user" and isinstance(msg.get("content"), list):
             for block in msg["content"]:
                 if block.get("type") == "tool_result":
                     entries.append((block, block.get("tool_use_id", "unknown")))
@@ -138,9 +126,7 @@ def micro_compact(messages: list):
     # OpenAI: msg 本身；Anthropic: content 列表里的 block
     tool_results: list[tuple[dict, str]] = []
     for msg in messages:
-        if msg.get("role") == "tool":
-            tool_results.append((msg, msg.get("tool_call_id", "")))
-        elif msg.get("role") == "user" and isinstance(msg.get("content"), list):
+        if msg.get("role") == "user" and isinstance(msg.get("content"), list):
             for block in msg["content"]:
                 if block.get("type") == "tool_result":
                     tool_results.append((block, block.get("tool_use_id", "")))
@@ -152,10 +138,6 @@ def micro_compact(messages: list):
     tool_map: dict[str, str] = {}
     for msg in messages:
         if msg.get("role") == "assistant":
-            # OpenAI 格式
-            for tc in msg.get("tool_calls") or []:
-                tool_map[tc["id"]] = tc["function"]["name"]
-            # Anthropic 格式
             content = msg.get("content", [])
             if isinstance(content, list):
                 for block in content:
@@ -187,16 +169,15 @@ def auto_compact(messages: list, client, model: str = None, topic: str = "") -> 
             f.write(json.dumps(msg, default=str) + "\n")
     print(f"[对话已经保存至： {transcript_path}]")
     conversation_text = json.dumps(messages, default=str)[-cfg.conversation_slice:]
-    response = client.create(
+    response = client.messages.create(
         model=model,
         messages=[{"role": "user", "content":
             "请对本次对话进行总结，以确保后续工作的连贯性。总结内容应包含："
             "1) 已取得的成果；2) 当前的进展状态；3) 已做出的关键决策。 "
             "请力求简洁，但务必保留关键细节。\n\n" + conversation_text}],
         max_tokens=cfg.max_tokens,
-        tools=[],
     )
-    summary = response.choices[0].message.content or "未生成摘要。"
+    summary = "".join(b.text for b in response.content if b.type == "text") or "未生成摘要。"
     return f"[对话已压缩。对话保存位置： {transcript_path}]\n\n{summary}"
 
 

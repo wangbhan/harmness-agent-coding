@@ -15,7 +15,7 @@ def main():
     parent_agent = Agent(
         client=client,
         registry=default_registry,
-        tools=default_registry.get_openai_tools(),
+        tools=default_registry.get_anthropic_tools(),
     )
 
     system = get_system_prompt()
@@ -34,11 +34,6 @@ def main():
             get_logger().user_input(query)
             history.append({"role": "user", "content": query})
             parent_agent.run(history)
-            response_content = history[-1]["content"]
-            if isinstance(response_content, list):
-                for block in response_content:
-                    if hasattr(block, "text"):
-                        print(block.text)
             print()
     finally:
         get_logger().session_end(

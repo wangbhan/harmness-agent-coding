@@ -1,6 +1,5 @@
 import copy
 import io
-import json
 import time
 import unittest
 from contextlib import redirect_stdout
@@ -13,40 +12,63 @@ from internal.Agent.tools.base import BaseTool
 from internal.Agent.tools.registry import ToolRegistry
 
 
-class FakeMessage:
-    def __init__(self, content="done", tool_calls=None):
+class FakeBlock:
+    """模拟 Anthropic 响应中的 content block。"""
+
+    def __init__(self, block_type, **fields):
+        self.type = block_type
+        self._fields = {"type": block_type, **fields}
+        for key, value in fields.items():
+            setattr(self, key, value)
+
+    def model_dump(self):
+        return dict(self._fields)
+
+
+def text_block(text):
+    return FakeBlock("text", text=text)
+
+
+def tool_call(call_id, name, arguments):
+    return FakeBlock("tool_use", id=call_id, name=name, input=arguments)
+
+
+class FakeResponse:
+    """模拟 Anthropic messages.create 响应。"""
+
+    def __init__(self, content, stop_reason, usage=None):
         self.content = content
-        self.tool_calls = tool_calls
-
-    def model_dump(self, **_kwargs):
-        result = {"role": "assistant", "content": self.content}
-        if self.tool_calls is not None:
-            result["tool_calls"] = self.tool_calls
-        return result
+        self.stop_reason = stop_reason
+        self.usage = usage
 
 
-def tool_call(call_id: str, name: str, arguments: dict):
-    return SimpleNamespace(
-        id=call_id,
-        function=SimpleNamespace(
-            name=name,
-            arguments=json.dumps(arguments),
-        ),
-    )
-
-
-class FakeCompletions:
+class FakeMessages:
     def __init__(self, responses):
         self.responses = list(responses)
         self.calls = []
 
+    def stream(self, **kwargs):
+        self.calls.append(copy.deepcopy(kwargs))
+        return _FakeStream(self.responses.pop(0))
+
     def create(self, **kwargs):
         self.calls.append(copy.deepcopy(kwargs))
-        message, finish_reason = self.responses.pop(0)
-        return SimpleNamespace(
-            choices=[SimpleNamespace(message=message, finish_reason=finish_reason)],
-            usage=None,
-        )
+        return self.responses.pop(0)
+
+
+class _FakeStream:
+    def __init__(self, response):
+        self.response = response
+        self.text_stream = iter(())
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *_args):
+        return False
+
+    def get_final_message(self):
+        return self.response
 
 
 class FakeHookManager:
@@ -61,8 +83,8 @@ class FakeHookManager:
 
 
 def make_agent(responses, hook_manager, registry=None, **kwargs):
-    completions = FakeCompletions(responses)
-    client = SimpleNamespace(chat=SimpleNamespace(completions=completions))
+    messages_api = FakeMessages(responses)
+    client = SimpleNamespace(messages=messages_api)
     agent = Agent(
         client=client,
         registry=registry or ToolRegistry(),
@@ -71,7 +93,7 @@ def make_agent(responses, hook_manager, registry=None, **kwargs):
         hook_manager=hook_manager,
         **kwargs,
     )
-    return agent, completions
+    return agent, messages_api
 
 
 class UserPromptHookTest(unittest.TestCase):
@@ -83,7 +105,7 @@ class UserPromptHookTest(unittest.TestCase):
             ) if event is HookEvent.USER_PROMPT_SUBMIT else HookResult()
         )
         agent, completions = make_agent(
-            [(FakeMessage("done"), "stop")], manager
+            [FakeResponse([text_block("done")], "end_turn")], manager
         )
         messages = [
             {"role": "system", "content": "base"},
@@ -93,9 +115,10 @@ class UserPromptHookTest(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             agent.run(messages)
 
-        sent = completions.calls[0]["messages"]
-        self.assertEqual(sent[1], {"role": "system", "content": "policy context"})
-        self.assertEqual(sent[2], {"role": "user", "content": "rewritten"})
+        sent = completions.calls[0]
+        self.assertEqual(sent["messages"], [{"role": "user", "content": "rewritten"}])
+        self.assertIn("policy context", sent["system"])
+        self.assertIn("base", sent["system"])
         self.assertEqual(manager.calls[0][1]["prompt"], "original")
 
     def test_blocked_prompt_skips_llm_and_is_removed_from_history(self):
@@ -121,7 +144,7 @@ class UserPromptHookTest(unittest.TestCase):
     def test_internal_subagent_task_skips_user_prompt_event(self):
         manager = FakeHookManager()
         agent, completions = make_agent(
-            [(FakeMessage("done"), "stop")],
+            [FakeResponse([text_block("done")], "end_turn")],
             manager,
             process_user_prompts=False,
         )
@@ -142,20 +165,22 @@ class StopHookTest(unittest.TestCase):
 
         def handler(event, _payload):
             nonlocal stop_count
-            if event is not HookEvent.STOP:
-                return HookResult()
-            stop_count += 1
-            if stop_count == 1:
-                return HookResult(
-                    blocked=True,
-                    reason="continue working",
-                    additional_context=("check tests",),
-                )
+            if event is HookEvent.STOP:
+                stop_count += 1
+                if stop_count == 1:
+                    return HookResult(
+                        blocked=True,
+                        reason="continue working",
+                        additional_context=("check tests",),
+                    )
             return HookResult()
 
         manager = FakeHookManager(handler)
         agent, completions = make_agent(
-            [(FakeMessage("first"), "stop"), (FakeMessage("final"), "stop")],
+            [
+                FakeResponse([text_block("first")], "end_turn"),
+                FakeResponse([text_block("final")], "end_turn"),
+            ],
             manager,
         )
         messages = [{"role": "user", "content": "work"}]
@@ -164,10 +189,9 @@ class StopHookTest(unittest.TestCase):
             agent.run(messages)
 
         self.assertEqual(len(completions.calls), 2)
-        injected = completions.calls[1]["messages"][-1]
-        self.assertEqual(injected["role"], "system")
-        self.assertIn("continue working", injected["content"])
-        self.assertIn("check tests", injected["content"])
+        sent_system = completions.calls[1].get("system", "")
+        self.assertIn("continue working", sent_system)
+        self.assertIn("check tests", sent_system)
 
     def test_stop_cannot_force_more_than_five_continuations(self):
         def handler(event, _payload):
@@ -176,7 +200,10 @@ class StopHookTest(unittest.TestCase):
             return HookResult()
 
         manager = FakeHookManager(handler, stop_max_continuations=5)
-        responses = [(FakeMessage(f"answer-{index}"), "stop") for index in range(6)]
+        responses = [
+            FakeResponse([text_block(f"answer-{index}")], "end_turn")
+            for index in range(6)
+        ]
         agent, completions = make_agent(responses, manager)
 
         with redirect_stdout(io.StringIO()):
@@ -203,6 +230,14 @@ class RecordingTool(BaseTool):
         time.sleep(self.delay)
         self.records.append((self.name, text, "end", time.perf_counter()))
         return f"{self.name}:{text}"
+
+
+def _find_tool_result_message(messages):
+    return next(
+        message for message in messages
+        if message.get("role") == "user" and isinstance(message.get("content"), list)
+        and any(block.get("type") == "tool_result" for block in message["content"])
+    )
 
 
 class ToolHookTest(unittest.TestCase):
@@ -236,7 +271,10 @@ class ToolHookTest(unittest.TestCase):
             tool_call("b", "beta", {"text": "blocked"}),
         ]
         agent, _completions = make_agent(
-            [(FakeMessage(None, calls), "tool_calls"), (FakeMessage("done"), "stop")],
+            [
+                FakeResponse(calls, "tool_use"),
+                FakeResponse([text_block("done")], "end_turn"),
+            ],
             manager,
             registry,
         )
@@ -250,15 +288,20 @@ class ToolHookTest(unittest.TestCase):
             [(name, text) for name, text, phase, _at in records if phase == "start"],
             [("alpha", "changed")],
         )
-        tool_messages = [message for message in messages if message["role"] == "tool"]
-        self.assertEqual(tool_messages[0]["content"], "ALPHA:CHANGED")
-        self.assertEqual(tool_messages[1]["content"], "tool denied")
+        result_msg = _find_tool_result_message(messages)
+        by_id = {
+            block["tool_use_id"]: block["content"]
+            for block in result_msg["content"]
+            if block.get("type") == "tool_result"
+        }
+        self.assertEqual(by_id["a"], "ALPHA:CHANGED")
+        self.assertEqual(by_id["b"], "tool denied")
         context_message = next(
             message for message in messages
             if message["role"] == "system" and "pre-context" in message["content"]
         )
         self.assertIn("post-context", context_message["content"])
-        self.assertGreater(messages.index(context_message), messages.index(tool_messages[-1]))
+        self.assertGreater(messages.index(context_message), messages.index(result_msg))
 
     def test_approved_tools_remain_parallel(self):
         records = []
@@ -271,7 +314,10 @@ class ToolHookTest(unittest.TestCase):
             tool_call("b", "slow_b", {"text": "two"}),
         ]
         agent, _completions = make_agent(
-            [(FakeMessage(None, calls), "tool_calls"), (FakeMessage("done"), "stop")],
+            [
+                FakeResponse(calls, "tool_use"),
+                FakeResponse([text_block("done")], "end_turn"),
+            ],
             manager,
             registry,
         )
@@ -303,7 +349,10 @@ class ToolHookTest(unittest.TestCase):
         manager = FakeHookManager(handler)
         calls = [tool_call("compact-1", "compact", {})]
         agent, _completions = make_agent(
-            [(FakeMessage(None, calls), "tool_calls"), (FakeMessage("done"), "stop")],
+            [
+                FakeResponse(calls, "tool_use"),
+                FakeResponse([text_block("done")], "end_turn"),
+            ],
             manager,
         )
 
@@ -325,7 +374,10 @@ class ToolHookTest(unittest.TestCase):
         manager = FakeHookManager(handler)
         calls = [tool_call("echo-1", "echo", {"text": "secret"})]
         agent, _completions = make_agent(
-            [(FakeMessage(None, calls), "tool_calls"), (FakeMessage("done"), "stop")],
+            [
+                FakeResponse(calls, "tool_use"),
+                FakeResponse([text_block("done")], "end_turn"),
+            ],
             manager,
             registry,
         )
@@ -334,8 +386,12 @@ class ToolHookTest(unittest.TestCase):
         with redirect_stdout(io.StringIO()):
             agent.run(messages)
 
-        tool_message = next(message for message in messages if message["role"] == "tool")
-        self.assertEqual(tool_message["content"], "unsafe output")
+        result_msg = _find_tool_result_message(messages)
+        tool_result = next(
+            block for block in result_msg["content"]
+            if block.get("type") == "tool_result"
+        )
+        self.assertEqual(tool_result["content"], "unsafe output")
 
 
 if __name__ == "__main__":

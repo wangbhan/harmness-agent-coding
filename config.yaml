@@ -10,7 +10,7 @@ llm:
   # API Key 直填（优先级低于环境变量，建议在 config.yaml.local 中填写）
   api_key: ""
   # Anthropic 兼容的 API 端点地址（代理/网关）；为空时使用官方端点 https://api.anthropic.com
-  base_url: "https://k9xv3mqp8zt2.bygoogle.cc/"
+  base_url: ""
   # 默认使用的模型名称
   default_model: "claude-sonnet-4-6"
   # 模型响应的最大 token 数

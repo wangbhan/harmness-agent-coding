@@ -5,6 +5,7 @@ import uuid
 
 from internal.Agent.config import get_config
 from internal.Agent.hooks import HookEvent, get_hook_manager
+from internal.Agent.memory import MemoryExtractor, _get_memory_extractor
 from internal.conversation_log import get_logger
 from internal.Agent.tools.background import _get_bg_manager
 from internal.Agent.tools.compact import micro_compact, auto_compact, snip_compact, tool_result_budget
@@ -139,6 +140,11 @@ class Agent:
                 raise
 
             stop_reason = response.stop_reason
+
+            # 开始提取用户记忆并保存在运行地
+            if stop_reason != "tool_use":
+                _get_memory_extractor(self.client, self.model, self.max_tokens).extract_memories(messages)
+
             usage = getattr(response, "usage", None)
             if usage is not None and hasattr(usage, "model_dump"):
                 usage = usage.model_dump()

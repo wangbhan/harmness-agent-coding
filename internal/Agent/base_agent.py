@@ -141,9 +141,12 @@ class Agent:
 
             stop_reason = response.stop_reason
 
-            # 开始提取用户记忆并保存在运行地
+            # 开始提取用户记忆并保存在运行地（旁路功能，失败不应影响主对话流程）
             if stop_reason != "tool_use":
-                _get_memory_extractor(self.client, self.model, self.max_tokens).extract_memories(messages)
+                try:
+                    _get_memory_extractor(self.client, self.model, self.max_tokens).extract_memories(messages)
+                except Exception as e:
+                    print(f"\033[31m[Memory] 记忆提取旁路异常：{e}\033[0m")
 
             usage = getattr(response, "usage", None)
             if usage is not None and hasattr(usage, "model_dump"):

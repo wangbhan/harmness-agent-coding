@@ -21,7 +21,7 @@ llm:
 # --- 路径配置（不同路径的相对基准见各字段注释） ---
 paths:
   # Agent 工作根目录；为空时工具模块使用 Path.cwd().parent
-  workdir: ""
+  workdir: "."
   # 对话转录文件保存目录（压缩时原始对话的落盘位置）
   transcripts_dir: ".transcripts"
   # 会话 JSONL 日志保存目录；相对路径默认基于项目根目录

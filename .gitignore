@@ -11,6 +11,8 @@ wheels/
 
 .idea
 
+.memory
+
 # Session logs
 internal/.logs/
 logs/

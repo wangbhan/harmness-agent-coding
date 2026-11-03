@@ -111,7 +111,7 @@ Preview: <前 2000 字符>...
 
 ### 2.4 Layer 2：消息数量裁剪 `snip_compact`
 
-消息条数超过 50 时裁掉中段，插入 `[snipped N msgs]` 占位。关键约束：**裁剪边界不能落在 `tool_use` 与 `tool_result` 之间**，否则会破坏 Anthropic 协议要求的成对关系，导致 API 报错。因此裁剪点会向后跳过连续的 `tool_result`：
+消息条数超过 50 时裁掉中段（保留最开始的3轮和最后面的47轮），插入 `[snipped N msgs]` 占位。关键约束：**裁剪边界不能落在 `tool_use` 与 `tool_result` 之间**，否则会破坏 Anthropic 协议要求的成对关系，导致 API 报错。因此裁剪点会向后跳过连续的 `tool_result`：
 
 ```python
 def snip_compact(messages: list, max_message: int = 50):
@@ -160,7 +160,7 @@ class CompactTool(BaseTool):
         return "压缩请求已接收，正在压缩对话历史..."
 ```
 
-`auto_compact` 先把完整对话以 JSONL 追加落盘到 `.transcripts/transcript_<topic>.json`，再截取尾部 `conversation_slice` 字符送给 LLM 生成摘要，最后用摘要替换整个历史：
+`auto_compact` 先把完整对话以 JSONL 追加落盘到 `.transcripts/transcript_<topic>.json`，估算前三轮的token来判断是否要触发这个自动压缩工具，再截取尾部 `conversation_slice` 字符送给 LLM 生成摘要（固定9个部分：概念、文件、错误、解决、用户消息、待办、当前、下一步、只生成一次 - 实际使用时可以将最近文件、计划调用的agent、skill、tool等也放入上下文），最后用摘要替换整个历史：
 
 ```python
 def auto_compact(messages: list, client, model: str = None, topic: str = "") -> str:
